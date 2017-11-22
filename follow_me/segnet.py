@@ -1,5 +1,9 @@
 """
 Segnet
+
+Keras implementation of
+SegNet: A Deep Convolutional Encoder-Decoder Architecture for Image Segmentation
+https://arxiv.org/pdf/1511.00561.pdf
 """
 import keras
 from keras.layers import Conv2D
@@ -80,47 +84,47 @@ def decoder_block_gen(n):
     return decoder_block
 
 
-def build_model(image_shape, num_classes):
+def build_model(image_shape, input_shape, num_classes):
     """Build the model
 
     :param image_shape: tuple
-        Shape of the input image.
+        Shape of the original image.
+    :param input_shape: tuple
+        Shape of the input layer of the neural network.
     :param num_classes: int
         Number of different classes.
 
     :return: model in Keras
     """
     inputs = Input(image_shape)
-    X = Lambda(lambda image: ktf.image.resize_images(image, (128, 128)))(inputs)
+    X = Lambda(lambda image: ktf.image.resize_images(image, input_shape[0:2]))(inputs)
 
     # Encoders
     encoder_block2 = encoder_block_gen(2)
     encoder_block3 = encoder_block_gen(3)
 
-    X = encoder_block2(X, 32, (3, 3))
     X = encoder_block2(X, 64, (3, 3))
-    X = encoder_block3(X, 128, (3, 3))
+    X = encoder_block2(X, 128, (3, 3))
     X = encoder_block3(X, 256, (3, 3))
-    X = encoder_block3(X, 256, (3, 3))
+    X = encoder_block3(X, 512, (3, 3))
+    X = encoder_block3(X, 512, (3, 3))
 
     # Decoders
     decoder_block2 = decoder_block_gen(2)
     decoder_block3 = decoder_block_gen(3)
 
-    X = decoder_block3(X, 256, (3, 3))
+    X = decoder_block3(X, 512, (3, 3))
+    X = decoder_block3(X, 512, (3, 3), 256)
     X = decoder_block3(X, 256, (3, 3), 128)
-    X = decoder_block3(X, 128, (3, 3), 64)
-    X = decoder_block2(X, 64, (3, 3), 32)
-    X = decoder_block2(X, 32, (3, 3), num_classes)
+    X = decoder_block2(X, 128, (3, 3), 64)
+    X = decoder_block2(X, 64, (3, 3), num_classes)
 
     # change the image size to the original one
-    X = Lambda(lambda img: ktf.image.resize_images(img, (256, 256)))(X)
+    X = Lambda(lambda img: ktf.image.resize_images(img, image_shape[0:2]))(X)
 
     X = Reshape((-1, num_classes))(X)
     outputs = Activation('softmax')(X)
 
     model = keras.models.Model(inputs=inputs, outputs=outputs)
-
-    model.summary()
 
     return model

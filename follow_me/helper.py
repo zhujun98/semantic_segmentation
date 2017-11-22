@@ -7,14 +7,15 @@ import os
 from glob import glob
 import warnings
 from distutils.version import LooseVersion
-import shutil
-import zipfile
-from tqdm import tqdm
-from urllib.request import urlretrieve
+from contextlib import redirect_stdout
 
 import cv2
 import tensorflow as tf
 import keras
+
+from data_processing import normalize_rgb_image
+from data_processing import jitter_image
+from data_processing import encoding_mask
 
 
 def check_environment():
@@ -24,7 +25,7 @@ def check_environment():
         'Please use TensorFlow version 1.4 or newer.'
 
     print('Keras Version: {}'.format(keras.__version__))
-    assert LooseVersion(tf.__version__) >= LooseVersion('1.4'), \
+    assert LooseVersion(keras.__version__) >= LooseVersion('2.0'), \
         'Please use Keras version 2.0 or newer.'
 
     # Check for a GPU
@@ -34,150 +35,17 @@ def check_environment():
         print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
-class DLProgress(tqdm):
-    """Show downloading progress"""
-    last_block = 0
+def show_model(model, filename):
+    """Printout and save the model to a txt file
 
-    def hook(self, block_num=1, block_size=1, total_size=None):
-        self.total = total_size
-        self.update((block_num - self.last_block) * block_size)
-        self.last_block = block_num
-
-
-def maybe_download_data():
-    """Download the data if it doesn't exist"""
-    data_path = './data'
-    train_filename = 'train.zip'
-    validation_filename = 'validation.zip'
-    train_folder = 'train'
-    validation_folder = 'validation'
-    test_folder = 'test'
-
-    if not os.path.isdir(os.path.join(data_path, train_folder)) or \
-            not os.path.isdir(os.path.join(data_path, validation_folder)):
-        if os.path.exists(data_path):
-            shutil.rmtree(data_path)
-        os.makedirs(data_path)
-
-        # Download data
-        print('Downloading train data...')
-        with DLProgress(unit='B', unit_scale=True, miniters=1) as pbar:
-            urlretrieve(
-                'https://s3-us-west-1.amazonaws.com/udacity-robotics/Deep+Learning+Data/Lab/train.zip',
-                os.path.join(data_path, train_filename),
-                pbar.hook)
-
-        print('Extracting data...')
-        zip_ref = zipfile.ZipFile(os.path.join(data_path, train_filename), 'r')
-        zip_ref.extractall(data_path)
-        zip_ref.close()
-
-        shutil.move(os.path.join(data_path, "train_combined"),
-                    os.path.join(data_path, "train"))
-
-        os.remove(os.path.join(data_path, train_filename))
-
-        print('Downloading validation data...')
-        with DLProgress(unit='B', unit_scale=True, miniters=1) as pbar:
-            urlretrieve(
-                'https://s3-us-west-1.amazonaws.com/udacity-robotics/Deep+Learning+Data/Lab/validation.zip',
-                os.path.join(data_path, validation_filename),
-                pbar.hook)
-
-        print('Extracting data...')
-        zip_ref = zipfile.ZipFile(os.path.join(data_path, validation_filename), 'r')
-        zip_ref.extractall(data_path)
-        zip_ref.close()
-
-        os.remove(os.path.join(data_path, validation_filename))
-
-        # create test data from validation data
-        print("Creating test data from validation data...")
-        os.makedirs(os.path.join(data_path, test_folder, 'images'))
-        os.mkdir(os.path.join(data_path, test_folder, 'masks'))
-
-        image_paths = sorted(glob(os.path.join(data_path, validation_folder,
-                                        'images', '*.jpeg')))
-        label_paths = sorted(glob(os.path.join(data_path, validation_folder,
-                                        'masks', '*.png')))
-        count = 0
-        for image, label in zip(image_paths, label_paths):
-            count += 1
-            if count > 600:
-                break
-            shutil.move(image, os.path.join(data_path, test_folder, 'images'))
-            shutil.move(label, os.path.join(data_path, test_folder, 'masks'))
-
-
-def normalize_rgb_image(img):
-    """Normalize an RGB image data
-
-    :param img: numpy.ndarray
-        Image data.
+    :param model: Keras model
+    :param filename: String
+        Name of the text file.
     """
-    new_img = np.copy(img).astype(np.float32)
-    new_img /= 127.5
-    new_img -= 1.0
-
-    return new_img
-
-
-def jitter_image(image, gt_image):
-    """Apply jitter to an image
-
-    :param image: numpy array
-        Image data.
-    :param gt_image: numpy array
-        Ground truth data.
-    """
-    w, h = image.shape[0], image.shape[1]
-
-    img_jittered = np.copy(image)
-    gt_image_jittered = np.copy(gt_image)
-
-    # random flip image horizontally
-    if random.random() > 0.5:
-        img_jittered = cv2.flip(img_jittered, 1)
-        gt_image_jittered = cv2.flip(gt_image_jittered, 1)
-
-    # random crop image
-    left = int(random.random()*25)
-    right = w - int(random.random()*25)
-    up = int(random.random()*25)
-    down = h - int(random.random()*25)
-    img_jittered = cv2.resize(img_jittered[left:right, up:down], (h, w))
-    gt_image_jittered = cv2.resize(gt_image_jittered[left:right, up:down], (h, w))
-
-    # Brightness and contrast jitter
-    max_gain = 0.3
-    max_bias = 20
-    alpha = 1 + max_gain * (2 * random.random() - 1.0)
-    beta = max_bias * (2 * random.random() - 1.0)
-    img_jittered = alpha * img_jittered + beta
-    img_jittered[img_jittered > 255] = 255
-    img_jittered[img_jittered < 0] = 0
-
-    return img_jittered, gt_image_jittered
-
-
-def encoding_mask(mask, class_colors):
-    """Encoding the mask image
-
-    Each class occupy a channel of the return image, described by binary
-    values (0 and 1).
-
-    :param mask: numpy.array
-        Original mask image.
-    :param class_colors: tuple of tuple
-        Colors for different classes.
-    :return: numpy.array
-        Encoded mask
-    """
-    gt = list()
-    for color in class_colors:
-        gt.append(np.all(mask == np.array(color), axis=2))
-
-    return np.stack(gt, axis=2)
+    model.summary()
+    with open(filename, 'w') as f:
+        with redirect_stdout(f):
+            model.summary()
 
 
 def gen_batch_function(batch_size, class_colors):
@@ -276,7 +144,8 @@ def gen_prediction_function(batch_size):
 
 def train(model, epochs, batch_size, learning_rate, class_colors,
           train_data_folder, num_train_data,
-          vali_data_folder=None, num_vali_data=None):
+          vali_data_folder=None, num_vali_data=None,
+          weights_file=None):
     """Train the model
 
     :param model: Keras model
@@ -296,17 +165,28 @@ def train(model, epochs, batch_size, learning_rate, class_colors,
         Validation data folder.
     :param num_vali_data: None / int
         Total number of validation data.
+    :param weights_file: None /string
+        File to save the new weights.
     """
     model.compile(optimizer=keras.optimizers.Adam(learning_rate),
                   loss='categorical_crossentropy')
 
     batch_generator = gen_batch_function(batch_size, class_colors)
 
+    try:
+        model.load_weights(weights_file)
+        print("\nLoaded existing weights!")
+    except:
+        print("\nStart training new model!")
+
     model.fit_generator(batch_generator(train_data_folder),
                         steps_per_epoch=int(num_train_data/batch_size),
                         epochs=epochs,
                         validation_data=batch_generator(vali_data_folder, is_training=False),
                         validation_steps=int(num_vali_data/batch_size))
+
+    if weights_file is not None:
+        model.save(weights_file)
 
 
 def output_prediction(model, image_shape, class_colors, batch_size,
@@ -315,7 +195,7 @@ def output_prediction(model, image_shape, class_colors, batch_size,
 
     :param model: Keras model
     :param image_shape: tuple
-        Input image shape.
+        Shape of the original image data.
     :param class_colors: tuple of tuple
         BGR representation of colors for different classes
     :param batch_size: int
@@ -329,7 +209,7 @@ def output_prediction(model, image_shape, class_colors, batch_size,
         os.makedirs(output_folder)
 
     batch_generator = gen_prediction_function(batch_size)
-    print('Saving inferenced test images to: {}'.format(output_folder))
+    print('Saving inferred test images to: {} ...'.format(output_folder))
 
     for batch_images, batch_names in batch_generator(test_data_folder):
         # convert prediction to colored map
@@ -346,3 +226,5 @@ def output_prediction(model, image_shape, class_colors, batch_size,
                         seg_image.astype(np.uint8))
 
         # return  # for debug, only predict one batch
+
+    print("Finished!")
