@@ -3,4 +3,5 @@
 .ipynb_checkpoints
 data
 *.h5
-output*
+*inference
+*.pkl

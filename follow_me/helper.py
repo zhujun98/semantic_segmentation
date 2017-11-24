@@ -1,6 +1,7 @@
 """
 Helper functions for the road semantic segmentation project
 """
+import pickle
 import random
 import numpy as np
 import os
@@ -95,12 +96,14 @@ def gen_batch_function(batch_size, class_colors):
                     image = normalize_rgb_image(image)
 
                     # Encoding the label image
-                    gt_image = encoding_mask(gt_image, class_colors).reshape((-1, len(class_colors)))
+                    gt_image = encoding_mask(gt_image, class_colors).reshape(
+                        (-1, len(class_colors)))
 
                     images.append(image)
                     gt_images.append(gt_image)
 
-                yield np.array(images), np.array(gt_images)
+                yield np.array(images).astype(np.float32), \
+                      np.array(gt_images).astype(np.float32)
 
     return get_batches_fn
 
@@ -145,7 +148,7 @@ def gen_prediction_function(batch_size):
 def train(model, epochs, batch_size, learning_rate, class_colors,
           train_data_folder, num_train_data,
           vali_data_folder=None, num_vali_data=None,
-          weights_file=None):
+          weights_file=None, loss_history_file=None):
     """Train the model
 
     :param model: Keras model
@@ -165,32 +168,40 @@ def train(model, epochs, batch_size, learning_rate, class_colors,
         Validation data folder.
     :param num_vali_data: None / int
         Total number of validation data.
-    :param weights_file: None /string
-        File to save the new weights.
+    :param weights_file: string
+        File name for storing the weights of the model.
+    :param loss_history_file: string
+        File name for loss history.
     """
-    model.compile(optimizer=keras.optimizers.Adam(learning_rate),
-                  loss='categorical_crossentropy')
-
-    batch_generator = gen_batch_function(batch_size, class_colors)
-
     try:
         model.load_weights(weights_file)
         print("\nLoaded existing weights!")
     except:
         print("\nStart training new model!")
 
-    model.fit_generator(batch_generator(train_data_folder),
-                        steps_per_epoch=int(num_train_data/batch_size),
-                        epochs=epochs,
-                        validation_data=batch_generator(vali_data_folder, is_training=False),
-                        validation_steps=int(num_vali_data/batch_size))
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate),
+                  loss='categorical_crossentropy')
+
+    batch_generator = gen_batch_function(batch_size, class_colors)
+
+    history = model.fit_generator(batch_generator(train_data_folder),
+                                  steps_per_epoch=int(num_train_data/batch_size),
+                                  epochs=epochs,
+                                  validation_data=batch_generator(vali_data_folder,
+                                                                  is_training=False),
+                                  validation_steps=int(num_vali_data/batch_size))
 
     if weights_file is not None:
         model.save(weights_file)
 
+    if loss_history_file is not None:
+        with open(loss_history_file, "wb") as fp:
+            pickle.dump(history.history, fp)
+
 
 def output_prediction(model, image_shape, class_colors, batch_size,
-                      test_data_folder, output_folder='output'):
+                      test_data_folder, output_folder='output',
+                      max_predictions=1e4):
     """Predict output
 
     :param model: Keras model
@@ -202,8 +213,10 @@ def output_prediction(model, image_shape, class_colors, batch_size,
         Batch size.
     :param test_data_folder: string
         Test data folder.
-    :param output_folder:string
+    :param output_folder: string
         Output folder.
+    :param max_predictions: int
+        Upper bound for the number of predictions.
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -211,6 +224,7 @@ def output_prediction(model, image_shape, class_colors, batch_size,
     batch_generator = gen_prediction_function(batch_size)
     print('Saving inferred test images to: {} ...'.format(output_folder))
 
+    count = 0
     for batch_images, batch_names in batch_generator(test_data_folder):
         # convert prediction to colored map
         pred_proba = model.predict_on_batch(batch_images).reshape(batch_size, *image_shape)
@@ -225,6 +239,8 @@ def output_prediction(model, image_shape, class_colors, batch_size,
                                      os.path.basename(name).split('.')[0] + '_pred.png'),
                         seg_image.astype(np.uint8))
 
-        # return  # for debug, only predict one batch
+            count += 1
+            if count >= max_predictions:
+                return
 
     print("Finished!")

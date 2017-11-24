@@ -96,24 +96,20 @@ def build_model(image_shape, input_shape, num_classes):
     X = Lambda(lambda image: ktf.image.resize_images(image, input_shape[0:2]))(inputs)
 
     # Encoders
+    encoder_block1 = encoder_block_gen(1)
     encoder_block2 = encoder_block_gen(2)
-    encoder_block3 = encoder_block_gen(3)
 
-    X = encoder_block2(X, 64, (3, 3))
-    X = encoder_block2(X, 128, (3, 3))
-    X = encoder_block3(X, 256, (3, 3))
-    X = encoder_block3(X, 512, (3, 3))
-    X = encoder_block3(X, 512, (3, 3))
+    X = encoder_block1(X, 64, (3, 3))
+    X = encoder_block1(X, 128, (3, 3))
+    X = encoder_block2(X, 256, (3, 3))
 
     # Decoders
+    decoder_block1 = decoder_block_gen(1)
     decoder_block2 = decoder_block_gen(2)
-    decoder_block3 = decoder_block_gen(3)
 
-    X = decoder_block3(X, 512, (3, 3))
-    X = decoder_block3(X, 512, (3, 3), 256)
-    X = decoder_block3(X, 256, (3, 3), 128)
-    X = decoder_block2(X, 128, (3, 3), 64)
-    X = decoder_block2(X, 64, (3, 3), num_classes)
+    X = decoder_block2(X, 256, (3, 3), 128)
+    X = decoder_block1(X, 128, (3, 3), 64)
+    X = decoder_block1(X, 64, (3, 3), num_classes)
 
     # change the image size to the original one
     X = Lambda(lambda img: ktf.image.resize_images(img, image_shape[0:2]))(X)

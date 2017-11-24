@@ -1,7 +1,6 @@
 """
 
 """
-import data_processing
 import depthwise_segnet
 import segnet
 import helper
@@ -11,40 +10,57 @@ from parameters import image_shape, input_shape, num_classes, class_colors
 
 
 if __name__ == "__main__":
+    DEBUG = False
+
     learning_rate = 2e-4
-    batch_size = 8
-    epochs = 2
+    epochs = 150
+    batch_size = 16
+    max_preds = 1e4
+    if DEBUG is True:
+        epochs = 2
+        batch_size = 2
+        num_vali_data = 2
+        num_train_data = 2
+        max_preds = 2
 
     helper.check_environment()
-
-    data_processing.maybe_download_data()
 
     #######################################################################
     ### The original segnet (without pooling index)
     #######################################################################
+    weights_file = "segnet_weights.h5"
+    structure_file = "segnet_model.txt"
+    output_folder = "./segnet_inference"
+    loss_history_file = "segnet_loss.pkl"
 
     model = segnet.build_model(image_shape, input_shape, num_classes)
-    helper.show_model(model, "segnet_model.txt")
+    helper.show_model(model, structure_file)
 
-    weights_file = "saved_segnet.h5"
-    helper.train(model, epochs, batch_size, learning_rate, class_colors,
-                 train_data_folder, batch_size, vali_data_folder, batch_size,
-                 weights_file)
+    helper.train(model, epochs, batch_size, learning_rate,
+                 class_colors, train_data_folder, num_train_data,
+                 vali_data_folder, num_vali_data,
+                 weights_file, loss_history_file)
 
     helper.output_prediction(model, image_shape, class_colors, batch_size,
-                             test_data_folder, "./output_segnet")
+                             test_data_folder, output_folder,
+                             max_predictions=max_preds)
 
     #######################################################################
     ### The depthwise segnet
-    #######################################################################
+    ######################################################################
+    weights_file = "depthwise_segnet_weights.h5"
+    structure_file = "depthwise_segnet_model.txt"
+    output_folder = "./depthwise_segnet_inference"
+    loss_history_file = "depthwise_segnet_loss.pkl"
 
     model = depthwise_segnet.build_model(image_shape, input_shape, num_classes)
-    helper.show_model(model, "depthwise_segnet_model.txt")
+    helper.show_model(model, structure_file)
 
-    weights_file = "saved_depthwise_segnet.h5"
-    helper.train(model, epochs, batch_size, learning_rate, class_colors,
-                 train_data_folder, batch_size, vali_data_folder, batch_size,
-                 weights_file)
+    helper.train(model, epochs, batch_size, learning_rate,
+                 class_colors, train_data_folder, num_train_data,
+                 vali_data_folder, num_vali_data,
+                 weights_file, loss_history_file)
 
     helper.output_prediction(model, image_shape, class_colors, batch_size,
-                             test_data_folder, "./output_depthwise_segnet")
+                             test_data_folder, output_folder,
+                             max_predictions=max_preds)
