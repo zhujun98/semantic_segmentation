@@ -4,23 +4,4 @@ Jun Zhu
 
 ---
 
-We will build a segmentation network to track VIP in an image. We use the data set for one of the projects at RoboND, Udacity. However, we have implemented different models. One is the original [SegNet](https://arxiv.org/pdf/1511.00561.pdf) and the other has a similar structure but all the convolutional layers are replaced by [depthwise separable convolutional layers](https://arxiv.org/pdf/1610.02357.pdf).
-
-
-## Models
-
-Due to technical constraint, **we have not combined the pooling indices in the encoder to the decoder!!!**
-
-## Results
-
-TODO: increase the model size
-
-Both models were trained on AWS EC2 g3.4xlarge instance.
-
-| Model                                  | SegNet           | Depthwise SegNet  |
-| -------------------------------------------|:---------------------:| -----------------------------:|
-| No. epochs                          |                 |                         |
-| No. parameters (M)              |                |                         |
-| Training time per epoch (s)  |                |                        |
-| Training loss                        |        |                     |
-| Validation loss                     |          |                         |
+In this notebook, I built two segmentation networks to track VIP in an image. I used the data set for one of the projects at RoboND, Udacity. However, I have implemented different models. One is the original [SegNet](https://arxiv.org/pdf/1511.00561.pdf) and the other has a similar structure but all the convolutional layers are replaced by depthwise separable convolutional layers. Due to the technical constraint, **I have not combined the pooling indices in the encoder to the decoder!!!** Moreover, I used the default upsampling implemented in Keras which simply repeats the values in the lower layer and differs from bilinear upsampling.
