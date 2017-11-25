@@ -9,7 +9,7 @@ In this notebook, I built two segmentation networks to track VIP in an image. I 
 ## Run
 
 ```python
-$ python main.py
+python main.py
 ```
 
 ## Visualization
