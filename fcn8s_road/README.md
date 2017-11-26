@@ -9,6 +9,11 @@ Semantic segmentation of the road pixels in images using [Fully Convolutional Ne
 
 ![alt text](./misc/FCN-8s.png)
 
+## Requirements
+
+python3>=3.5.2
+tensorflow>=1.4.0
+
 ## Data
 
 **Kitti Road data set**
