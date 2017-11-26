@@ -19,21 +19,21 @@ from data_processing import jitter_image
 from data_processing import encoding_mask
 
 
-def check_environment():
-    """Check TensorFlow Version and GPU"""
-    print('TensorFlow Version: {}'.format(tf.__version__))
-    assert LooseVersion(tf.__version__) >= LooseVersion('1.4'), \
-        'Please use TensorFlow version 1.4 or newer.'
-
-    print('Keras Version: {}'.format(keras.__version__))
-    assert LooseVersion(keras.__version__) >= LooseVersion('2.0'), \
-        'Please use Keras version 2.0 or newer.'
-
-    # Check for a GPU
-    if not tf.test.gpu_device_name():
-        warnings.warn('No GPU found. Please use a GPU to train your neural network.')
-    else:
-        print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+# def check_environment():
+#     """Check TensorFlow Version and GPU"""
+#     print('TensorFlow Version: {}'.format(tf.__version__))
+#     assert LooseVersion(tf.__version__) >= LooseVersion('1.4'), \
+#         'Please use TensorFlow version 1.4 or newer.'
+#
+#     print('Keras Version: {}'.format(keras.__version__))
+#     assert LooseVersion(keras.__version__) >= LooseVersion('2.0'), \
+#         'Please use Keras version 2.0 or newer.'
+#
+#     # Check for a GPU
+#     if not tf.test.gpu_device_name():
+#         warnings.warn('No GPU found. Please use a GPU to train your neural network.')
+#     else:
+#         print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
 def show_model(model, filename):
@@ -200,8 +200,8 @@ def train(model, epochs, batch_size, learning_rate, class_colors,
 
 
 def output_prediction(model, image_shape, class_colors, batch_size,
-                      test_data_folder, output_folder='output',
-                      max_predictions=1e4):
+                      test_data_folder, num_test_data=None,
+                      output_folder='output'):
     """Predict output
 
     :param model: Keras model
@@ -213,10 +213,10 @@ def output_prediction(model, image_shape, class_colors, batch_size,
         Batch size.
     :param test_data_folder: string
         Test data folder.
+    :param num_test_data: None / int
+        Upper bound for the number of predictions.
     :param output_folder: string
         Output folder.
-    :param max_predictions: int
-        Upper bound for the number of predictions.
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -240,7 +240,7 @@ def output_prediction(model, image_shape, class_colors, batch_size,
                         seg_image.astype(np.uint8))
 
             count += 1
-            if count >= max_predictions:
+            if num_test_data is not None and count >= num_test_data:
                 return
 
     print("Finished!")

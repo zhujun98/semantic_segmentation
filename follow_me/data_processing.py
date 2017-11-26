@@ -12,6 +12,8 @@ from glob import glob
 import numpy as np
 import cv2
 
+from parameters import data_path, train_data_folder, vali_data_folder, test_data_folder
+
 
 class DLProgress(tqdm):
     """Show downloading progress"""
@@ -25,67 +27,67 @@ class DLProgress(tqdm):
 
 def maybe_download_data():
     """Download the data if it doesn't exist"""
-    data_path = './data'
-    train_filename = 'train.zip'
-    validation_filename = 'validation.zip'
-    train_folder = 'train'
-    validation_folder = 'validation'
-    test_folder = 'test'
+    training_zipfile = os.path.join(data_path, 'train.zip')
+    validation_zipfile = os.path.join(data_path, 'validation.zip')
 
-    if not os.path.isdir(os.path.join(data_path, train_folder)) or \
-            not os.path.isdir(os.path.join(data_path, validation_folder)):
-        if os.path.exists(data_path):
-            shutil.rmtree(data_path)
-        os.makedirs(data_path)
+    if not os.path.isdir(train_data_folder) or \
+            not os.path.isdir(vali_data_folder):
+        try:
+            os.makedirs(data_path)
+        except FileExistsError:
+            RED = "\033[31m"
+            print(RED + "Data path '{}' already exists! \n"
+                  "Delete the folder before downloading data".format(data_path))
+            raise SystemExit
 
         # Download data
         print('Downloading train data...')
         with DLProgress(unit='B', unit_scale=True, miniters=1) as pbar:
             urlretrieve(
                 'https://s3-us-west-1.amazonaws.com/udacity-robotics/Deep+Learning+Data/Lab/train.zip',
-                os.path.join(data_path, train_filename),
+                training_zipfile,
                 pbar.hook)
 
         print('Extracting data...')
-        zip_ref = zipfile.ZipFile(os.path.join(data_path, train_filename), 'r')
+        zip_ref = zipfile.ZipFile(training_zipfile, 'r')
         zip_ref.extractall(data_path)
         zip_ref.close()
 
-        shutil.move(os.path.join(data_path, "train_combined"),
-                    os.path.join(data_path, "train"))
+        shutil.move(os.path.join(data_path, "train_combined"), train_data_folder)
 
-        os.remove(os.path.join(data_path, train_filename))
+        os.remove(training_zipfile)
 
         print('Downloading validation data...')
         with DLProgress(unit='B', unit_scale=True, miniters=1) as pbar:
             urlretrieve(
                 'https://s3-us-west-1.amazonaws.com/udacity-robotics/Deep+Learning+Data/Lab/validation.zip',
-                os.path.join(data_path, validation_filename),
+                validation_zipfile,
                 pbar.hook)
 
         print('Extracting data...')
-        zip_ref = zipfile.ZipFile(os.path.join(data_path, validation_filename), 'r')
+        zip_ref = zipfile.ZipFile(validation_zipfile, 'r')
         zip_ref.extractall(data_path)
         zip_ref.close()
 
-        os.remove(os.path.join(data_path, validation_filename))
+        os.remove(validation_zipfile)
 
-        # create test data from validation data
+
+def maybe_create_test_data():
+    """create test data from validation data"""
+    if not os.path.isdir(test_data_folder):
         print("Creating test data from validation data...")
-        os.makedirs(os.path.join(data_path, test_folder, 'images'))
-        os.mkdir(os.path.join(data_path, test_folder, 'masks'))
+        os.makedirs(os.path.join(test_data_folder, 'images'))
+        os.mkdir(os.path.join(test_data_folder, 'masks'))
 
-        image_paths = sorted(glob(os.path.join(data_path, validation_folder,
-                                               'images', '*.jpeg')))
-        label_paths = sorted(glob(os.path.join(data_path, validation_folder,
-                                               'masks', '*.png')))
+        image_paths = sorted(glob(os.path.join(vali_data_folder, 'images', '*.jpeg')))
+        label_paths = sorted(glob(os.path.join(vali_data_folder, 'masks', '*.png')))
         count = 0
         for image, label in zip(image_paths, label_paths):
             count += 1
             if count > 600:
                 break
-            shutil.move(image, os.path.join(data_path, test_folder, 'images'))
-            shutil.move(label, os.path.join(data_path, test_folder, 'masks'))
+            shutil.move(image, os.path.join(test_data_folder, 'images'))
+            shutil.move(label, os.path.join(test_data_folder, 'masks'))
 
 
 def normalize_rgb_image(img):
