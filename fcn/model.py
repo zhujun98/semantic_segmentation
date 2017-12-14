@@ -129,59 +129,34 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
 
     return fuse2_up
 
+
 tests.test_layers(fcn8s)
 
 
-def optimize(nn_last_layer, label_image, learning_rate, num_classes):
-    """Build the TensorFLow loss and optimizer operations.
-
-    :param nn_last_layer: TF Tensor
-        The last layer in the neural network
-    :param label_image: TF Placeholder
-        The encoded ground true image
-    :param learning_rate: float
-        The learning rate
-    :param num_classes: int
-        Number of classes to classify
-
-    :return: Tuple consisting of (logits, optimizer, cross_entropy_loss)
-    """
-    # reshape both the logits and labels to column vectors, where the
-    # number of columns is the number of classes
-    logits = tf.reshape(nn_last_layer, (-1, num_classes))
-    labels = tf.reshape(label_image, (-1, num_classes))
-
-    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-        logits=logits, labels=labels))
-
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
-
-    return logits, optimizer, cross_entropy_loss
-
-tests.test_optimize(optimize)
-
-
-def train(sess, epochs, batch_size, data_folder, image_shape, num_classes,
-          background_color, keep_prob, learning_rate, training=True):
+def train(sess, gen, n_classes, *,
+          epochs=1,
+          batch_size=16,
+          keep_prob=0.5,
+          learning_rate=1e-3,
+          gen_validation=None,
+          training=True):
     """Train neural network and print out the loss during training.
 
     :param sess: TF Session
+    :param gen: generator
+        Training data generator.
+    :param n_classes: int
+        Number of classes
     :param epochs: int
         Number of epochs.
     :param batch_size: int
         Batch size.
-    :param data_folder: string
-        Folder contains the training data
-    :param image_shape: tuple
-        Shape of the input image
-    :param num_classes: int
-        Number of classes
-    :param background_color: tuple
-        RGB representation of the background color
     :param keep_prob: float
         Keep probability for drop-out layer.
     :param learning_rate: float
         Learning rate.
+    :param gen_validation: None / generator
+        Validation data generator.
     :param training: boolean
         True for (continue) training the model.
 
@@ -190,22 +165,26 @@ def train(sess, epochs, batch_size, data_folder, image_shape, num_classes,
     """
     # Load VGG layers
     vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out = \
-        load_vgg(sess, './vgg')
+        load_vgg(sess, '../vgg')
 
     # Build FCN-8s
-    outputs = fcn8s(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes)
+    outputs = fcn8s(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, n_classes)
 
     # Optimizer for training
-    label_image = tf.placeholder(tf.float32, (None, None, None, num_classes))
-    logits, optimizer, cross_entropy_loss = optimize(
-        outputs, label_image, learning_rate, num_classes)
+    masks = tf.placeholder(tf.float32, (None, None, None, n_classes))
+    logits = tf.reshape(outputs, (-1, n_classes))
+    labels = tf.reshape(masks, (-1, n_classes))
+    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+        logits=logits, labels=labels))
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
 
+    # Initialization
     sess.run(tf.global_variables_initializer())
-    saver = tf.train.Saver()  # instantiate a saver after initialization
+    saver = tf.train.Saver()
 
     # prepare folder for saving models
     save_dir = './saved_models'
-    root_name = os.path.join(save_dir, 'model-FCN8s')
+    root_name = os.path.join(save_dir, 'model-fcn8s-camvid')
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
@@ -215,29 +194,39 @@ def train(sess, epochs, batch_size, data_folder, image_shape, num_classes,
         saver = tf.train.import_meta_graph(root_name + '.meta')
         saver.restore(sess, root_name)
     except:
+        print("Cannot find existing model!")
         pass
-
-    # training data generator
-    get_batches_fn = helper.gen_batch_function(
-        data_folder, image_shape, background_color)
 
     if training is True:
         # train the model
-        print("--- Training... ---")
+        print("--- Training ---")
         for i in range(epochs):
             count = 0
             total_loss = 0
-            for features, labels in get_batches_fn(batch_size):
+            for features, labels in gen(batch_size):
                 _, loss = sess.run([optimizer, cross_entropy_loss],
-                                    feed_dict={vgg_keep_prob: keep_prob,
-                                               vgg_input: features,
-                                               label_image: labels
-                                               })
+                                   feed_dict={vgg_keep_prob: keep_prob,
+                                              vgg_input: features,
+                                              masks: labels
+                                              })
                 count += features.shape[0]
                 total_loss += loss*features.shape[0]
+                print("Loss: {:.4f}".format(total_loss / count))
 
             print("Epoch: {:02d}/{:02d}, cost: {:.4f}".
-                  format(i+1, epochs, total_loss/count))
+                  format(i+1, epochs, total_loss/count), end='')
+
+            # validation
+            if gen_validation is not None:
+                count = 0
+                total_vali_loss = 0
+                for features, labels in gen_validation(batch_size):
+                    count += features.shape[0]
+                    total_vali_loss += sess.run([cross_entropy_loss],
+                                                feed_dict={vgg_keep_prob: 1.0,
+                                                           vgg_input: features,
+                                                           masks: labels})
+                print(" ,Validation cost: {:.4f}".format(total_vali_loss / count))
 
         # save the model
         try:
@@ -282,6 +271,6 @@ def predict_test(sess, data_folder, output_folder, logits, vgg_input,
     image_outputs = helper.gen_test_output(
         sess, logits, vgg_keep_prob, vgg_input, data_folder, image_shape)
 
-    print('Saving inferenced test images to: {}'.format(output_folder))
+    print('Saving inferred test images to: {}'.format(output_folder))
     for name, image in image_outputs:
         cv2.imwrite(os.path.join(output_folder, name), image)

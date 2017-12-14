@@ -5,7 +5,6 @@ import re
 import random
 import numpy as np
 import os
-import shutil
 import zipfile
 import cv2
 import tensorflow as tf
@@ -15,18 +14,20 @@ from tqdm import tqdm
 import warnings
 from distutils.version import LooseVersion
 
+from data_processing import normalize_rgb_images
 
-def check_environment():
-    """Check TensorFlow Version and GPU"""
-    print('TensorFlow Version: {}'.format(tf.__version__))
-    assert LooseVersion(tf.__version__) >= LooseVersion('1.4'), \
-        'Please use TensorFlow version 1.4 or newer.'
 
-    # Check for a GPU
-    if not tf.test.gpu_device_name():
-        warnings.warn('No GPU found. Please use a GPU to train your neural network.')
-    else:
-        print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+# def check_environment():
+#     """Check TensorFlow Version and GPU"""
+#     print('TensorFlow Version: {}'.format(tf.__version__))
+#     if LooseVersion(tf.__version__) < LooseVersion('1.4'):
+#         warnings.warn('It is recommended to use TensorFlow version 1.4 or newer.')
+#
+#     # Check for a GPU
+#     if not tf.test.gpu_device_name():
+#         warnings.warn('No GPU found. Please use a GPU to train your neural network.')
+#     else:
+#         print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
 class DLProgress(tqdm):
@@ -41,88 +42,45 @@ class DLProgress(tqdm):
 
 def maybe_download_pretrained_vgg():
     """Download and extract pre-trained vgg model if it doesn't exist"""
-    vgg_filename = 'vgg.zip'
-    vgg_path = './vgg'
+    root_path = '../'
+    vgg_folder = os.path.join(root_path, 'vgg')
     vgg_files = [
-        os.path.join(vgg_path, 'variables/variables.data-00000-of-00001'),
-        os.path.join(vgg_path, 'variables/variables.index'),
-        os.path.join(vgg_path, 'saved_model.pb')]
+        os.path.join(vgg_folder, 'variables/variables.data-00000-of-00001'),
+        os.path.join(vgg_folder, 'variables/variables.index'),
+        os.path.join(vgg_folder, 'saved_model.pb')
+    ]
+
+    vgg_zipfile = os.path.join(root_path, 'vgg.zip')
 
     missing_vgg_files = [vgg_file for vgg_file in vgg_files
                          if not os.path.exists(vgg_file)]
     if missing_vgg_files:
-        # Clean vgg dir
-        if os.path.exists(vgg_path):
-            shutil.rmtree(vgg_path)
-        os.makedirs(vgg_path)
+        try:
+            os.makedirs(vgg_folder)
+        except FileExistsError:
+            print("\033[31m" +
+                  "Data path '{}' already exists! \n".format(vgg_folder) +
+                  "Delete the folder before downloading data" +
+                  "\033[0m")
+            raise SystemExit
 
         # Download vgg
-        print('Downloading pre-trained vgg model...')
-        with DLProgress(unit='B', unit_scale=True, miniters=1) as pbar:
-            urlretrieve(
-                'https://s3-us-west-1.amazonaws.com/udacity-selfdrivingcar/vgg.zip',
-                os.path.join(vgg_path, vgg_filename),
-                pbar.hook)
+        if not os.path.exists(vgg_zipfile):
+            print('Downloading pre-trained vgg model...')
+            with DLProgress(unit='B', unit_scale=True, miniters=1) as pbar:
+                urlretrieve(
+                    'https://s3-us-west-1.amazonaws.com/udacity-selfdrivingcar/vgg.zip',
+                    vgg_zipfile,
+                    pbar.hook)
 
         # Extract vgg
         print('Extracting model...')
-        zip_ref = zipfile.ZipFile(os.path.join(vgg_path, vgg_filename), 'r')
-        zip_ref.extractall()
+        zip_ref = zipfile.ZipFile(vgg_zipfile, 'r')
+        zip_ref.extractall(root_path)
         zip_ref.close()
 
         # Remove the zip file
-        os.remove(os.path.join(vgg_path, vgg_filename))
-
-
-def normalize_rgb_image(img):
-    """Normalize an RGB image data
-
-    :param img: numpy.ndarray
-        Image data.
-    """
-    new_img = np.copy(img).astype(np.float32)
-    new_img /= 127.5
-    new_img -= 1.0
-
-    return new_img
-
-
-def jitter_image(image, gt_image):
-    """Apply jitter to an image
-
-    :param image: numpy array
-        Image data.
-    :param gt_image: numpy array
-        Ground truth data.
-    """
-    w, h = image.shape[0], image.shape[1]
-
-    img_jittered = np.copy(image)
-    gt_image_jittered = np.copy(gt_image)
-
-    # random flip image horizontally
-    if random.random() > 0.5:
-        img_jittered = cv2.flip(img_jittered, 1)
-        gt_image_jittered = cv2.flip(gt_image_jittered, 1)
-
-    # random crop image
-    left = int(random.random()*50)
-    right = w - int(random.random()*50)
-    up = int(random.random()*10)
-    down = h - int(random.random()*10)
-    img_jittered = cv2.resize(img_jittered[left:right, up:down], (h, w))
-    gt_image_jittered = cv2.resize(gt_image_jittered[left:right, up:down], (h, w))
-
-    # Brightness and contrast jitter
-    max_gain = 0.3
-    max_bias = 20
-    alpha = 1 + max_gain * (2 * random.random() - 1.0)
-    beta = max_bias * (2 * random.random() - 1.0)
-    img_jittered = alpha * img_jittered + beta
-    img_jittered[img_jittered > 255] = 255
-    img_jittered[img_jittered < 0] = 0
-
-    return img_jittered, gt_image_jittered
+        os.remove(vgg_zipfile)
 
 
 def gen_batch_function(data_folder, image_shape, background_color):
@@ -163,7 +121,7 @@ def gen_batch_function(data_folder, image_shape, background_color):
 
                 # preprocessing
                 image, gt_image = jitter_image(image, gt_image)
-                image = normalize_rgb_image(image)
+                normalize_rgb_images(image)
 
                 # Encoding the label image
                 gt = list()
@@ -200,10 +158,10 @@ def gen_test_output(sess, logits, input_image, keep_prob, data_folder, image_sha
         image = cv2.resize(cv2.imread(image_file), (image_shape[1], image_shape[0]))
 
         # Normalize the test image
-        normalized_image = normalize_rgb_image(image)
+        normalize_rgb_images(image)
 
         softmax = sess.run([tf.nn.softmax(logits)],
-                           feed_dict={keep_prob: 1.0, input_image: [normalized_image]})
+                           feed_dict={keep_prob: 1.0, input_image: [image]})
         softmax = softmax[0][:, 1].reshape(image_shape[0], image_shape[1], 1)
 
         segmentation = (softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
