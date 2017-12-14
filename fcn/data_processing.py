@@ -82,19 +82,25 @@ def crop_images(img, gt_img, target_shape, is_training):
     return img[h0:h1, w0:w1], gt_img[h0:h1, w0:w1]
 
 
-# def color_shift():
-#     """"""
-#     # Brightness and contrast jitter
-#     max_gain = 0.3
-#     max_bias = 20
-#     alpha = 1 + max_gain * (2 * random.random() - 1.0)
-#     beta = max_bias * (2 * random.random() - 1.0)
-#     img_jittered = alpha * img_jittered + beta
-#     img_jittered[img_jittered > 255] = 255
-#     img_jittered[img_jittered < 0] = 0
+def color_shift(img, alpha=0.3, beta=20.0):
+    """Apply brightness and contrast jitter in-place
+
+    :param img: numpy.ndarray
+        Image data.
+    :param alpha: float
+        Gain.
+    :param beta: float
+        Shift.
+    """
+    alpha = 1 + alpha * (2 * random.random() - 1.0)
+    beta = beta * (2 * random.random() - 1.0)
+    img *= alpha
+    img += beta
+    img[img > 255] = 255
+    img[img < 0] = 0
 
 
-def encoding_mask(label, label_colors, is_rgb=False):
+def encoding_mask(label, label_colors, is_rgb=True):
     """Encoding the label image
 
     Each class occupy a channel of the return image, described by binary
@@ -102,8 +108,8 @@ def encoding_mask(label, label_colors, is_rgb=False):
 
     :param label: numpy.array
         Original label image.
-    :param label_colors: an array of tuple
-        Colors for different labels (classes).
+    :param label_colors: an array of tuple or a tuple
+        Colors for different labels (classes) or the background color.
     :param is_rgb: bool
         True for RGB label image; False for GBR label image.
 
@@ -111,11 +117,20 @@ def encoding_mask(label, label_colors, is_rgb=False):
         Encoded label
     """
     gt = list()
-    for color in label_colors:
+    if isinstance(label_colors[0], tuple):
+        for color in label_colors:
+            if is_rgb is True:
+                gt.append(np.all(label == np.array(color), axis=2))
+            else:
+                gt.append(np.all(label == np.array(color)[::-1], axis=2))
+    else:
         if is_rgb is True:
-            gt.append(np.all(label == np.array(color), axis=2))
+            background_color = label_colors
         else:
-            gt.append(np.all(label == np.array(color)[::-1], axis=2))
+            background_color = label_colors[::-1]
+        gt = list()
+        gt.append(np.all(label == background_color, axis=2))
+        gt.append(np.invert(gt[0]))
 
     return np.stack(gt, axis=2).astype(int)
 
@@ -139,10 +154,14 @@ def read_data_from_files(image_files, label_files):
         images.append(cv2.imread(image_files[i]))
         labels.append(cv2.imread(label_files[i]))
 
-    return images, labels
+    is_rgb = False  # opencv use GBR representation
+    return images, labels, is_rgb
 
 
-def preprocess_data(images, labels, label_colors, input_shape, is_training=True):
+def preprocess_data(images, labels, label_colors, *,
+                    input_shape=None,
+                    is_training=True,
+                    is_rgb=True):
     """Data cropping, augmentation and normalization
 
     :param images: list of numpy.ndarray
@@ -151,10 +170,12 @@ def preprocess_data(images, labels, label_colors, input_shape, is_training=True)
         List of label data.
     :param label_colors: list of tuple
         Encoded colors for different classes.
-    :param input_shape: tuple, (w, h, c)
+    :param input_shape: tuple, (w, h)
         Input shape for the neural network.
     :param is_training: bool
         True for training data and False for validation/test data.
+    :param is_rgb: bool
+        True for RGB label image; False for GBR label image.
 
     :return X: numpy.ndarray, (None, w, h, c)
         Preprocessed features.
@@ -162,59 +183,108 @@ def preprocess_data(images, labels, label_colors, input_shape, is_training=True)
         One-hot encoded labels.
     """
     n = len(images)
-    X = np.empty((n, *input_shape), dtype=np.float64)
-    Y = np.empty((n, input_shape[0], input_shape[1], len(label_colors)), dtype=int)
+    if input_shape is None:
+        input_shape = images[0].shape
+    X = np.empty((n, *input_shape, images[0].shape[-1]), dtype=np.float64)
+    if isinstance(label_colors[0], tuple):
+        Y = np.empty((n, *input_shape, len(label_colors)), dtype=int)
+    else:
+        Y = np.empty((n, *input_shape, 2), dtype=int)
 
     for i in range(n):
         X[i, :, :, :], tmp = crop_images(
-            images[i], labels[i], input_shape[0:2], is_training)
-        Y[i, :, :, :] = encoding_mask(tmp, label_colors)
+            images[i], labels[i], input_shape, is_training)
+        Y[i, :, :, :] = encoding_mask(tmp, label_colors, is_rgb=is_rgb)
         if random.random() > 0.5:
             flip_horizontally(X)
             flip_horizontally(Y)
+
+    color_shift(X)
     normalize_rgb_images(X)
 
     return X, Y
 
 
+def data_generator(image_files, label_files, input_shape, label_colors,
+                   is_training=True):
+    """Batch training data generator
+
+    The data will be randomly resized, cropped and then flipped
+    horizontally.
+
+    :param input_shape: tuple, (w, h)
+        Input shape for the neural network.
+    :param is_training: bool
+        True for training data and False for validation data.
+
+    :return: batches of (images, labels)
+    """
+    def gen_batch_data(batch_size):
+        """Create batches of data
+
+        :param batch_size: int
+            Batch size.
+        :return: Batches of training data
+        """
+        while 1:
+            image_files_shuffled, label_files_shuffled = \
+                shuffle_data(image_files, label_files)
+            for i in range(int(len(image_files) / batch_size)):
+                indices = [i*batch_size + j for j in range(batch_size)]
+                X, Y, is_rgb = read_data_from_files(image_files_shuffled[indices],
+                                                    label_files_shuffled[indices])
+                X, Y = preprocess_data(X, Y, label_colors,
+                                       input_shape=input_shape,
+                                       is_training=is_training,
+                                       is_rgb=is_rgb)
+
+                yield X, Y
+
+    return gen_batch_data
+
+
 class KittiRoad(object):
     """Kitti road dataset class"""
     def __init__(self,
-                 images_train_folder=None,
-                 labels_train_folder=None,
-                 images_test_folder=None,
-                 labels_test_folder=None,
-                 train_test_split=0.8,
+                 train_data_folder=None,
+                 test_data_folder=None,
                  validation_train_split=0.2,
                  seed = None):
         """Initialization
 
-        :param images_train_folder: string
+        :param train_data_folder: string
 
-        :param labels_train_folder: string
+        :param test_data_folder: string
 
-        :param images_test_folder: string
-
-        :param labels_test_folder: string
-
-        :param train_test_split:
-            Percentage of images used for training.
         :param validation_train_split:
             Percentage of training images used for validation.
         :param seed: int
             Seed used for data split.
         """
-        self.background_color = (0, 0, 255)
+        default_data_path = os.path.expanduser("data_road")
 
-        self.images_train = None  # image files' full paths
-        self.labels_train = None  # label files' full paths
-        self.images_vali = None
-        self.labels_vali = None
-        self.images_test = None
-        self.labels_test = None
-        self._split_data(validation_train_split)
+        if train_data_folder is None:
+            self.train_data_folder = os.path.join(default_data_path, "training")
+        else:
+            self.train_data_folder = train_data_folder
 
-    def _split_data(self, train_test_split, validation_train_split, seed=None):
+        if test_data_folder is None:
+            self.test_data_folder = os.path.join(default_data_path, "testing")
+        else:
+            self.test_data_folder = test_data_folder
+
+        self.n_classes = 2
+        self.background_color = (255, 0, 0)  # RGB representation
+
+        self.image_files_train = None  # image files' full paths
+        self.label_files_train = None  # label files' full paths
+        self.image_files_vali = None
+        self.label_files_vali = None
+        self.image_files_test = None
+        self.label_files_test = None
+        self._split_data(validation_train_split, seed)
+
+    def _split_data(self, validation_train_split, seed=None):
         """Split data into train and test set
 
         :param validation_train_split:
@@ -224,26 +294,30 @@ class KittiRoad(object):
         """
         random.seed(seed)  # fix data splitting
 
-        images = glob.glob(os.path.join(self.image_path, '*.png'))
-        labels = glob.glob(os.path.join(self.label_path, '*.png'))
-        images, labels = shuffle_data(np.array(images), np.array(labels))
+        images_train = glob.glob(
+            os.path.join(self.train_data_folder, 'image_2', '*.png'))
+        labels_train = glob.glob(
+            os.path.join(self.train_data_folder, 'gt_image_2', '*.png'))
+        images_train, labels_train = shuffle_data(np.array(images_train),
+                                                  np.array(labels_train))
 
-        n_trains = int(train_test_split*len(images))
-        n_valis = int(validation_train_split*n_trains)
-        self.images_vali = images[:n_valis, ...]
-        self.labels_vali = images[:n_valis, ...]
-        self.images_train = images[n_valis:n_trains, ...]
-        self.labels_train = labels[n_valis:n_trains, ...]
-        self.images_test = images[n_trains:, ...]
-        self.labels_test = labels[n_trains:, ...]
+        n_valis = int(validation_train_split*len(images_train))
+        self.image_files_vali = images_train[:n_valis]
+        self.label_files_vali = labels_train[:n_valis]
+        self.image_files_train = images_train[n_valis:]
+        self.label_files_train = labels_train[n_valis:]
+
+        self.image_files_test = glob.glob(
+            os.path.join(self.test_data_folder, 'image_2', '*.png'))
 
         random.seed(None)  # reset seed
 
     def summary(self):
         """Print the summary of the dataset"""
         print("Number of classes: 2")
-        print("Number of training data: {}".format(len(self.images_train)))
-        print("Number of test data: {}".format(len(self.images_test)))
+        print("Number of training data: {}".format(len(self.image_files_train)))
+        print("Number of validation data: {}".format(len(self.image_files_vali)))
+        print("Number of test data: {}".format(len(self.image_files_test)))
 
 
 class CamVid(object):
@@ -285,6 +359,7 @@ class CamVid(object):
             label_colors_file = os.path.join(default_data_path, "label_colors.txt")
         self.label_names, self.label_colors = \
             self.get_label_colors(label_colors_file)
+        self.n_classes = len(self.label_names)
 
         if train_test_split > 1 or train_test_split < 0:
             raise ValueError("train_test_split must be between [0, 1]")
@@ -335,12 +410,12 @@ class CamVid(object):
                                                 np.array(label_files))
         n_trains = int(train_test_split*len(image_files))
         n_valis = int(validation_train_split*n_trains)
-        self.image_files_vali = np.array(image_files[:n_valis, ...])
-        self.label_files_vali = np.array(label_files[:n_valis, ...])
-        self.image_files_train = np.array(image_files[n_valis:n_trains, ...])
-        self.label_files_train = np.array(label_files[n_valis:n_trains, ...])
-        self.image_files_test = np.array(image_files[n_trains:, ...])
-        self.label_files_test = np.array(label_files[n_trains:, ...])
+        self.image_files_vali = np.array(image_files[:n_valis])
+        self.label_files_vali = np.array(label_files[:n_valis])
+        self.image_files_train = np.array(image_files[n_valis:n_trains])
+        self.label_files_train = np.array(label_files[n_valis:n_trains])
+        self.image_files_test = np.array(image_files[n_trains:])
+        self.label_files_test = np.array(label_files[n_trains:])
 
         random.seed(None)  # reset seed
 
@@ -350,45 +425,3 @@ class CamVid(object):
         print("Number of training data: {}".format(len(self.image_files_train)))
         print("Number of validation data: {}".format(len(self.image_files_vali)))
         print("Number of test data: {}".format(len(self.image_files_test)))
-
-    def train_data_generator(self, input_shape, is_training=True):
-        """Batch training data generator
-
-        The data will be randomly resized, cropped and then flipped
-        horizontally.
-
-        :param input_shape: tuple, (w, h, c)
-            Input shape for the neural network.
-        :param is_training: bool
-            True for training data and False for validation data.
-
-        :return: batches of (images, labels)
-        """
-        if is_training is True:
-            image_files = self.image_files_train
-            label_files = self.label_files_train
-        else:
-            image_files = self.image_files_vali
-            label_files = self.label_files_vali
-
-        def gen_batch_data(batch_size):
-            """Create batches of data
-
-            :param batch_size: int
-                Batch size.
-            :return: Batches of training data
-            """
-            label_colors = self.label_colors
-            while 1:
-                image_files_shuffled, label_files_shuffled = \
-                    shuffle_data(image_files, label_files)
-                for i in range(int(len(image_files) / batch_size)):
-                    indices = [i*batch_size + j for j in range(batch_size)]
-                    X, Y = read_data_from_files(image_files_shuffled[indices],
-                                                label_files_shuffled[indices])
-                    X, Y = preprocess_data(X, Y, label_colors, input_shape,
-                                           is_training=is_training)
-
-                    yield X, Y
-
-        return gen_batch_data

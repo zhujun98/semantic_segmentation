@@ -7,17 +7,16 @@ import os
 import tensorflow as tf
 
 from model import train
-from data_processing import CamVid
+from data_processing import CamVid, data_generator
 import helper
 
 
 if __name__ == '__main__':
-    # image_data_shape = (720, 960, 3)
-    input_shape = (224, 224, 3)
+    input_shape = (320, 480)
 
-    epochs = 30
+    epochs = 150
     batch_size = 8
-    learning_rate = 1e-3
+    learning_rate = 1e-4
     keep_prob = 0.5
 
     # Download pre-trained vgg model
@@ -34,12 +33,19 @@ if __name__ == '__main__':
     data = CamVid(image_data_folder, label_data_folder, label_colors_file)
     data.summary()
 
-    gen_train = data.train_data_generator(input_shape)
-    gen_vali = data.train_data_generator(input_shape, is_training=False)
+    gen_train = data_generator(data.image_files_train,
+                               data.label_files_train,
+                               input_shape,
+                               data.label_colors)
+    gen_vali = data_generator(data.image_files_vali,
+                              data.label_files_vali,
+                              input_shape,
+                              data.label_colors,
+                              is_training=False)
 
     with tf.Session() as sess:
         logits, vgg_input, vgg_keep_prob = \
-            train(sess, gen_train, len(data.label_names),
+            train(sess, gen_train, data.n_classes,
                   batch_size=batch_size,
                   epochs=epochs,
                   keep_prob=keep_prob,

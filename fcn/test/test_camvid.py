@@ -14,14 +14,19 @@ class TestCamVid(unittest.TestCase):
 
         self.images_test = []
         self.labels_test = []
-        for i in range(20):
-            self.images_test.append(cv2.imread(random.choice(self._data.image_files_train)))
-            self.labels_test.append(cv2.imread(random.choice(self._data.label_files_train)))
-            self.images_test.append(cv2.imread(random.choice(self._data.image_files_vali)))
-            self.labels_test.append(cv2.imread(random.choice(self._data.label_files_vali)))
+        for i in range(5):
+            self.images_test.append(
+                cv2.imread(random.choice(self._data.image_files_train)))
+            self.labels_test.append(
+                cv2.imread(random.choice(self._data.label_files_train)))
+            self.images_test.append(
+                cv2.imread(random.choice(self._data.image_files_vali)))
+            self.labels_test.append(
+                cv2.imread(random.choice(self._data.label_files_vali)))
 
         self.label_names = self._data.label_names
         self.label_colors = self._data.label_colors
+        self.n_classes = self._data.n_classes
 
     def test_class_names(self):
         self.assertEqual(len(self.label_colors), 32)
@@ -44,12 +49,13 @@ class TestCamVid(unittest.TestCase):
             self.assertEqual(label.shape, (720, 960, 3))
 
     def test_crop_image(self):
-        target_shape = (180, 240, 3)
+        target_shape = (320, 480)
         img, gt_img = crop_images(self.images_test[0],
                                   self.labels_test[0],
-                                  target_shape[0:2])
-        self.assertEqual(img.shape, target_shape)
-        self.assertEqual(gt_img.shape, target_shape)
+                                  target_shape,
+                                  True)
+        self.assertEqual(img.shape, (*target_shape, 3))
+        self.assertEqual(gt_img.shape, (*target_shape, 3))
 
     def test_encoding_mask(self):
         for label in self.labels_test:
@@ -58,21 +64,20 @@ class TestCamVid(unittest.TestCase):
             self.assertEqual(sorted(np.unique(mask_encoded)), [0, 1])
 
     def test_data_processing(self):
-        target_shape = (360, 480, 3)
+        target_shape = (320, 480)
 
-        images, labels = preprocess_data(self.images_test, self.labels_test,
-                                         self.label_colors, target_shape)
+        images, labels = preprocess_data(self.images_test,
+                                         self.labels_test,
+                                         self.label_colors,
+                                         input_shape=target_shape)
         self.assertEqual(images.shape[0], len(self.images_test))
         self.assertEqual(labels.shape[0], len(self.labels_test))
-        # self.assertIsInstance(images.dtype, np.float64)
-        # self.assertIsInstance(labels.dtype, int)
         for X, Y in zip(images, labels):
             self.assertLessEqual(-1, X.min())
             self.assertGreaterEqual(1, X.max())
-            self.assertEqual(X.shape, target_shape)
-            self.assertEqual(Y.shape, (target_shape[0],
-                                       target_shape[1],
-                                       len(self.label_names)))
+            self.assertEqual(X.shape, (*target_shape, 3))
+            self.assertEqual(Y.shape,
+                             (target_shape[0], target_shape[1], self.n_classes))
             self.assertEqual(sorted(np.unique(Y)), [0, 1])
 
 
