@@ -4,9 +4,9 @@ Jun Zhu
 
 ---
 
-### FCN
+### [FCN](./fcn)
 
-- [Udacity CarND Term3 project](./fcn8s_road)
+Dataset: Kitti Road, CamVid
 
 Implemented VGG-FCN8s. Trained VGG weights were used for fine tuning.
 

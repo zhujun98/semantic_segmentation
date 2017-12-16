@@ -1,23 +1,25 @@
 """
-CamVid datasets
+FCN8s on CamVid data set.
 
 Author: Jun Zhu
 """
 import os
 import tensorflow as tf
+import cv2
+import random
 
-from model import train
-from data_processing import CamVid, data_generator
+from model import train, load_fcn8s
+from data_processing import CamVid
 import helper
+from inference import inference
 
 
 if __name__ == '__main__':
     input_shape = (320, 480)
 
-    epochs = 150
+    epochs = 30
     batch_size = 8
-    learning_rate = 1e-4
-    keep_prob = 0.5
+    learning_rate = 5e-4
 
     # Download pre-trained vgg model
     helper.maybe_download_pretrained_vgg()
@@ -33,22 +35,49 @@ if __name__ == '__main__':
     data = CamVid(image_data_folder, label_data_folder, label_colors_file)
     data.summary()
 
-    gen_train = data_generator(data.image_files_train,
-                               data.label_files_train,
-                               input_shape,
-                               data.label_colors)
-    gen_vali = data_generator(data.image_files_vali,
-                              data.label_files_vali,
-                              input_shape,
-                              data.label_colors,
-                              is_training=False)
-
+    # 0 for train, 1 for inferring all the test images and save the
+    # inferred image files, others for showing the inferred images
+    inference_option = 2
     with tf.Session() as sess:
-        logits, vgg_input, vgg_keep_prob = \
-            train(sess, gen_train, data.n_classes,
-                  batch_size=batch_size,
+        if inference_option == 0:
+            train(sess, data,
+                  input_shape=input_shape,
                   epochs=epochs,
-                  keep_prob=keep_prob,
+                  batch_size=batch_size,
                   learning_rate=learning_rate,
-                  gen_validation=gen_vali,
-                  training=True)
+                  weight_decay=2e-4,
+                  rootname='fcn8s_camvid',
+                  finalize_dir=None)
+        else:
+            input_ts, keep_prob_ts, output_ts = load_fcn8s(
+                sess, './saved_fcn8s/fcn8s_camvid')
+
+            if inference_option == 1:
+                output_folder = './output_camvid'
+                if not os.path.exists(output_folder):
+                    os.mkdir(output_folder)
+
+                print('Saving inferred test images to {}'.format(output_folder))
+                for image_file in data.image_files_test:
+                    img = cv2.imread(image_file)
+                    masks = inference(sess, [img], input_shape, input_ts, output_ts,
+                                      keep_prob_ts, data.label_colors,
+                                      is_rgb=False,
+                                      set_black_background=True)
+
+                    cv2.imwrite(os.path.join(output_folder,
+                                             os.path.basename(image_file).split('.')[0] +
+                                             '_infer.png'),
+                                masks[0])
+            else:
+                for i in range(5):
+                    image_file = random.choice(data.image_files_test)
+                    img = cv2.imread(image_file)
+                    masks = inference(sess, [img], input_shape, input_ts, output_ts,
+                                      keep_prob_ts, data.label_colors,
+                                      is_rgb=False,
+                                      set_black_background=True)
+
+                    cv2.imshow(os.path.basename(image_file), masks[0])
+                    cv2.waitKey(0)
+                    cv2.destroyAllWindows()

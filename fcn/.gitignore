@@ -1,4 +1,8 @@
-data
-output
+__pycache__
+checkpoint
+data_road
+saved_fcn8s
+output_camvid
+output_kitti
 vgg
 .idea

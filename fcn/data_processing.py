@@ -1,6 +1,8 @@
 import random
 import os
 import glob
+import abc
+import re
 
 import numpy as np
 import cv2
@@ -33,29 +35,17 @@ def normalize_rgb_images(imgs):
     imgs -= 1.0
 
 
-def flip_horizontally(img):
-    """Flip the image horizontally
-
-    :param img: numpy.ndarray
-        Input image.
-
-    :return: numpy.ndarray
-        Flipped image.
-    """
-    return np.flip(img, axis=0)
-
-
 def crop_images(img, gt_img, target_shape, is_training):
-    """Crop the image to a given shape.
+    """Crop an image and the corresponding label image to a given shape.
 
     :param img: numpy.ndarray
         Image data.
-    :param gt_img: numpy.ndarray
+    :param gt_img: numpy.ndarray / None
         Ground truth image.
-    :param target_shape: tuple
-        Shape (w, h) of the cropped image.
+    :param target_shape: tuple, (w, h)
+        Shape of the cropped image.
     :param is_training: bool
-        True for training data and False for validation/test data.
+        True for the training data and False for the validation/test data.
 
     :return: numpy.ndarray
         Cropped image and ground truth image.
@@ -63,15 +53,18 @@ def crop_images(img, gt_img, target_shape, is_training):
     if img.shape[0] < target_shape[0] or img.shape[1] < target_shape[1]:
         print("Original size is smaller than the target size!")
 
-    # First scale the original image to a random one of the three
-    # different sizes
+    # First scale the original image to a random size
     if is_training is True:
-        scale = random.choice([1.0, 1.2, 1.4])
+        # It is useful to break the original ratio
+        scale_w = 1.0 + random.random()*0.2
+        scale_h = 1.0 + random.random()*0.2
     else:
-        scale = 1.0
-    new_shape = (int(scale*target_shape[1]), int(scale*target_shape[0]))
+        scale_w = 1.0
+        scale_h = 1.0
+    new_shape = (int(scale_w*target_shape[1]), int(scale_h*target_shape[0]))
     img = cv2.resize(img, new_shape)
-    gt_img = cv2.resize(gt_img, new_shape)
+    if gt_img is not None:
+        gt_img = cv2.resize(gt_img, new_shape, interpolation=cv2.INTER_NEAREST)
 
     # random crop a part with a size (crop_size, crop_size)
     w0 = random.randint(0, img.shape[1] - target_shape[1])
@@ -79,7 +72,9 @@ def crop_images(img, gt_img, target_shape, is_training):
     h0 = random.randint(0, img.shape[0] - target_shape[0])
     h1 = h0 + target_shape[0]
 
-    return img[h0:h1, w0:w1], gt_img[h0:h1, w0:w1]
+    if gt_img is not None:
+        return img[h0:h1, w0:w1], gt_img[h0:h1, w0:w1]
+    return img[h0:h1, w0:w1], None
 
 
 def color_shift(img, alpha=0.3, beta=20.0):
@@ -100,39 +95,66 @@ def color_shift(img, alpha=0.3, beta=20.0):
     img[img < 0] = 0
 
 
-def encoding_mask(label, label_colors, is_rgb=True):
-    """Encoding the label image
+def encoding_mask(mask, label_colors, is_rgb=True):
+    """Encoding the mask image
 
-    Each class occupy a channel of the return image, described by binary
-    values (0 and 1).
+    In the mask image, each class represented by a different color;
+    while in the encoded mask image, each class occupy a channel of the
+    return image, described by binary values (0 and 1).
 
-    :param label: numpy.array
+    :param mask: numpy.array
         Original label image.
-    :param label_colors: an array of tuple or a tuple
-        Colors for different labels (classes) or the background color.
+    :param label_colors: list of tuple
+        Colors for different labels (classes). The background color
+        should be put at the end.
     :param is_rgb: bool
         True for RGB label image; False for GBR label image.
 
     :return: numpy.array
-        Encoded label
+        Encoded mask image.
     """
     gt = list()
-    if isinstance(label_colors[0], tuple):
-        for color in label_colors:
-            if is_rgb is True:
-                gt.append(np.all(label == np.array(color), axis=2))
-            else:
-                gt.append(np.all(label == np.array(color)[::-1], axis=2))
-    else:
+    for color in label_colors:
         if is_rgb is True:
-            background_color = label_colors
+            gt.append(np.all(mask == np.array(color), axis=2))
         else:
-            background_color = label_colors[::-1]
-        gt = list()
-        gt.append(np.all(label == background_color, axis=2))
-        gt.append(np.invert(gt[0]))
+            gt.append(np.all(mask == np.array(color)[::-1], axis=2))
 
-    return np.stack(gt, axis=2).astype(int)
+    encoded_mask = np.stack(gt, axis=2)
+    # Set background if the pixel does not belong to any class
+    encoded_mask[np.sum(encoded_mask, axis=2) == 0, -1] = True
+    return encoded_mask.astype(int)
+
+
+def decoding_mask(mask, label_colors, is_rgb=True, set_black_background=False):
+    """Decoding the encoded mask image
+
+    :param mask: numpy.array (w, h)
+        A mask with values representing the index of label colors
+    :param label_colors: an array of tuple
+        Colors for different labels (classes).
+    :param is_rgb: bool
+        True for RGB label image; False for GBR label image.
+    :param set_black_background: bool
+        True for use (0, 0, 0) as the background color for decoding.
+
+    :return: numpy.array
+        Mask image with each class represented by a different color.
+    """
+    decoded_mask = np.zeros((*mask.shape, 3))
+    for i in range(mask.shape[0]):
+        for j in range(mask.shape[1]):
+            color_idx = mask[i, j]
+            use_color = label_colors[color_idx]
+            if set_black_background is True and color_idx == len(label_colors) - 1:
+                use_color = (0, 0, 0)
+
+            if is_rgb is not True:
+                use_color = use_color[::-1]
+
+            decoded_mask[i, j, :] = use_color
+
+    return decoded_mask.astype(np.uint8)
 
 
 def read_data_from_files(image_files, label_files):
@@ -166,9 +188,9 @@ def preprocess_data(images, labels, label_colors, *,
 
     :param images: list of numpy.ndarray
         List of image data.
-    :param labels: list of numpy.ndarray
+    :param labels: list of numpy.ndarray / None
         List of label data.
-    :param label_colors: list of tuple
+    :param label_colors: list of tuple / None
         Encoded colors for different classes.
     :param input_shape: tuple, (w, h)
         Input shape for the neural network.
@@ -186,64 +208,96 @@ def preprocess_data(images, labels, label_colors, *,
     if input_shape is None:
         input_shape = images[0].shape
     X = np.empty((n, *input_shape, images[0].shape[-1]), dtype=np.float64)
-    if isinstance(label_colors[0], tuple):
-        Y = np.empty((n, *input_shape, len(label_colors)), dtype=int)
+    if labels is None:
+        Y = None
     else:
-        Y = np.empty((n, *input_shape, 2), dtype=int)
+        Y = np.empty((n, *input_shape, len(label_colors)), dtype=int)
 
     for i in range(n):
-        X[i, :, :, :], tmp = crop_images(
-            images[i], labels[i], input_shape, is_training)
-        Y[i, :, :, :] = encoding_mask(tmp, label_colors, is_rgb=is_rgb)
-        if random.random() > 0.5:
-            flip_horizontally(X)
-            flip_horizontally(Y)
+        if labels is None:
+            X[i, :, :, :], tmp = crop_images(images[i], None, input_shape, False)
+        else:
+            X[i, :, :, :], tmp = crop_images(images[i], labels[i], input_shape, False)
+            Y[i, :, :, :] = encoding_mask(tmp, label_colors, is_rgb=is_rgb)
 
-    color_shift(X)
+        if is_training is True:
+            if random.random() > 0.5:
+                # Flip horizontally
+                X[i, :, :, :] = np.flip(X[i, :, :, :], axis=0)
+                Y[i, :, :, :] = np.flip(Y[i, :, :, :], axis=0)
+
+            color_shift(X[i, :, :, :])
+
     normalize_rgb_images(X)
 
     return X, Y
 
 
-def data_generator(image_files, label_files, input_shape, label_colors,
+def data_generator(image_files, label_files, label_colors, *,
+                   input_shape=None,
+                   batch_size=32,
                    is_training=True):
     """Batch training data generator
 
-    The data will be randomly resized, cropped and then flipped
-    horizontally.
+    The data will be augmented.
 
+    :param image_files: array of string
+        Image file paths.
+    :param label_files: array of string
+        Label file paths.
+    :param label_colors: list of tuple
+        Encoded colors for different classes.
     :param input_shape: tuple, (w, h)
         Input shape for the neural network.
+    :param batch_size: int
+        Batch size
     :param is_training: bool
         True for training data and False for validation data.
 
     :return: batches of (images, labels)
     """
-    def gen_batch_data(batch_size):
-        """Create batches of data
+    steps = int(len(image_files) / batch_size)
 
-        :param batch_size: int
-            Batch size.
-        :return: Batches of training data
-        """
-        while 1:
-            image_files_shuffled, label_files_shuffled = \
-                shuffle_data(image_files, label_files)
-            for i in range(int(len(image_files) / batch_size)):
-                indices = [i*batch_size + j for j in range(batch_size)]
-                X, Y, is_rgb = read_data_from_files(image_files_shuffled[indices],
-                                                    label_files_shuffled[indices])
-                X, Y = preprocess_data(X, Y, label_colors,
-                                       input_shape=input_shape,
-                                       is_training=is_training,
-                                       is_rgb=is_rgb)
+    image_files_shuffled, label_files_shuffled = \
+        shuffle_data(image_files, label_files)
+    for i in range(steps):
+        indices = [i*batch_size + j for j in range(batch_size)]
+        X, Y, is_rgb = read_data_from_files(image_files_shuffled[indices],
+                                            label_files_shuffled[indices])
+        X, Y = preprocess_data(X, Y, label_colors,
+                               input_shape=input_shape,
+                               is_training=is_training,
+                               is_rgb=is_rgb)
 
-                yield X, Y
-
-    return gen_batch_data
+        yield X, Y
 
 
-class KittiRoad(object):
+class DataSet(abc.ABC):
+    """Abstract class for data set"""
+    def __init__(self):
+        self.n_classes = None
+        self.label_colors = None
+        self.label_names = None
+
+        self.image_files_train = None  # image files' full paths
+        self.label_files_train = None  # label files' full paths
+        self.image_files_vali = None
+        self.label_files_vali = None
+        self.image_files_test = None
+        self.label_files_test = None
+
+    def show(self):
+        """Visualize image and label"""
+        idx = random.randint(0, len(self.image_files_train))
+        cv2.namedWindow("image")
+        cv2.imshow(data.image_files_train[idx], cv2.imread(data.image_files_train[idx]))
+        cv2.namedWindow("label")
+        cv2.imshow(data.label_files_train[idx], cv2.imread(data.label_files_train[idx]))
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+class KittiRoad(DataSet):
     """Kitti road dataset class"""
     def __init__(self,
                  train_data_folder=None,
@@ -253,14 +307,16 @@ class KittiRoad(object):
         """Initialization
 
         :param train_data_folder: string
-
+            Folder containing training data.
         :param test_data_folder: string
-
+            Folder containing test data.
         :param validation_train_split:
             Percentage of training images used for validation.
         :param seed: int
             Seed used for data split.
         """
+        super().__init__()
+
         default_data_path = os.path.expanduser("data_road")
 
         if train_data_folder is None:
@@ -273,16 +329,17 @@ class KittiRoad(object):
         else:
             self.test_data_folder = test_data_folder
 
-        self.n_classes = 2
-        self.background_color = (255, 0, 0)  # RGB representation
-
-        self.image_files_train = None  # image files' full paths
-        self.label_files_train = None  # label files' full paths
-        self.image_files_vali = None
-        self.label_files_vali = None
-        self.image_files_test = None
-        self.label_files_test = None
         self._split_data(validation_train_split, seed)
+        self.get_label_colors()
+
+    def get_label_colors(self):
+        """Set label colors
+
+        RGB representation
+        """
+        self.n_classes = 2
+        self.label_names = ['Road', 'Void']
+        self.label_colors = [(255, 0, 255), (255, 0, 0)]
 
     def _split_data(self, validation_train_split, seed=None):
         """Split data into train and test set
@@ -294,10 +351,19 @@ class KittiRoad(object):
         """
         random.seed(seed)  # fix data splitting
 
-        images_train = glob.glob(
-            os.path.join(self.train_data_folder, 'image_2', '*.png'))
-        labels_train = glob.glob(
-            os.path.join(self.train_data_folder, 'gt_image_2', '*.png'))
+        images_train = sorted(glob.glob(
+            os.path.join(self.train_data_folder, 'image_2', '*.png')))
+        labels_train_dict = {
+            re.sub(r'_road_', '_', os.path.basename(path)): path
+            for path in glob.glob(os.path.join(self.train_data_folder,
+                                               'gt_image_2',
+                                               '*_road_*.png'))}
+        sorted_keys = sorted(labels_train_dict)
+        labels_train = [labels_train_dict[key] for key in sorted_keys]
+
+        if len(images_train) == 0 or len(labels_train) == 0:
+            raise IndexError('Empty image or label file list!')
+
         images_train, labels_train = shuffle_data(np.array(images_train),
                                                   np.array(labels_train))
 
@@ -307,8 +373,11 @@ class KittiRoad(object):
         self.image_files_train = images_train[n_valis:]
         self.label_files_train = labels_train[n_valis:]
 
-        self.image_files_test = glob.glob(
-            os.path.join(self.test_data_folder, 'image_2', '*.png'))
+        self.image_files_test = sorted(glob.glob(
+            os.path.join(self.test_data_folder, 'image_2', '*.png')))
+
+        if len(self.image_files_test) == 0:
+            raise IndexError("Empty test file list!")
 
         random.seed(None)  # reset seed
 
@@ -320,7 +389,7 @@ class KittiRoad(object):
         print("Number of test data: {}".format(len(self.image_files_test)))
 
 
-class CamVid(object):
+class CamVid(DataSet):
     """CamVid dataset class"""
     def __init__(self,
                  image_data_folder=None,
@@ -344,6 +413,8 @@ class CamVid(object):
         :param seed: int
             Seed used for data split.
         """
+        super().__init__()
+
         default_data_path = os.path.expanduser("~/Projects/datasets/CamVid")
         if image_data_folder is None:
             image_path = os.path.join(default_data_path, "701_StillsRaw_full")
@@ -357,34 +428,37 @@ class CamVid(object):
 
         if label_colors_file is None:
             label_colors_file = os.path.join(default_data_path, "label_colors.txt")
-        self.label_names, self.label_colors = \
-            self.get_label_colors(label_colors_file)
-        self.n_classes = len(self.label_names)
+
+        self.get_label_colors(label_colors_file)
 
         if train_test_split > 1 or train_test_split < 0:
             raise ValueError("train_test_split must be between [0, 1]")
-        self.image_files_train = None  # image files' full paths
-        self.label_files_train = None  # label files' full paths
-        self.image_files_vali = None
-        self.label_files_vali = None
-        self.image_files_test = None
-        self.label_files_test = None
         self._split_data(image_path, label_path, train_test_split,
                          validation_train_split, seed=seed)
 
-    @staticmethod
-    def get_label_colors(label_colors_file):
+    def get_label_colors(self, label_colors_file):
         """Read label colors from file"""
-        label_colors = []
-        label_names = []
+        self.label_colors = []
+        # Defined in:
+        # P. Sturgess, K. Alahari, L. Ladicky, and P. H. Torr, “Combining
+        # appearance and structure from motion features for road scene
+        # understanding,” in BMVC 2012-23rd British Machine Vision Con-
+        # ference. BMVA, 2009.
+        label_names = ['Building', 'Tree', 'Sky', 'Car', 'SignSymbol',
+                       'Pedestrian', 'Road', 'Fence', 'Column_Pole',
+                       'Sidewalk', 'Bicyclist']
+        label_names = sorted(label_names)
+        label_names.append('Void')  # the last one if background
         with open(label_colors_file, 'r') as fp:
             for line in fp:
                 tmp = line.split()
-                label_names.append(tmp[-1])
-                label_colors.append((np.uint8(tmp[0]),
-                                     np.uint8(tmp[1]),
-                                     np.uint8(tmp[2])))
-        return zip(*sorted(zip(label_names, label_colors)))
+                name = tmp[-1]
+                color = (np.uint8(tmp[0]), np.uint8(tmp[1]), np.uint8(tmp[2]))
+                if name in label_names:
+                    self.label_colors.append(color)
+
+        self.label_names = label_names
+        self.n_classes = len(self.label_names)
 
     def _split_data(self, image_path, label_path,
                     train_test_split, validation_train_split, seed=None):
@@ -403,8 +477,11 @@ class CamVid(object):
         """
         random.seed(seed)  # fix data splitting
 
-        image_files = glob.glob(os.path.join(image_path, '*.png'))
-        label_files = glob.glob(os.path.join(label_path, '*.png'))
+        image_files = sorted(glob.glob(os.path.join(image_path, '*.png')))
+        label_files = sorted(glob.glob(os.path.join(label_path, '*.png')))
+
+        if len(image_files) == 0 or len(label_files) == 0:
+            raise IndexError('Empty image or label file list!')
 
         image_files, label_files = shuffle_data(np.array(image_files),
                                                 np.array(label_files))
@@ -425,3 +502,8 @@ class CamVid(object):
         print("Number of training data: {}".format(len(self.image_files_train)))
         print("Number of validation data: {}".format(len(self.image_files_vali)))
         print("Number of test data: {}".format(len(self.image_files_test)))
+
+
+if __name__ == '__main__':
+    data = KittiRoad()
+    data.show()

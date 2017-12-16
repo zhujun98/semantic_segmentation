@@ -1,6 +1,4 @@
-# Semantic Segmentation - Road
-
-![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)
+# Semantic Segmentation with FCN8s
 
 Jun Zhu
 
@@ -14,33 +12,43 @@ Semantic segmentation of the road pixels in images using [Fully Convolutional Ne
 python3>=3.5.2
 tensorflow>=1.4.0
 
-## Data
+The following models were trained on AWS EC2 g3.4xlarge.
 
-**Kitti Road data set**
+## [Kitti Road Data Set](http://www.cvlibs.net/datasets/kitti/eval_road.php)
 
-Download the [Kitti Road data set](http://www.cvlibs.net/datasets/kitti/eval_road.php) from [here](http://www.cvlibs.net/download.php?file=data_road.zip).  Extract the dataset in the `data` folder.  This will create the folder `data_road` with all the 289 training and 290 testing images.
+Download from [here](http://www.cvlibs.net/download.php?file=data_road.zip).
 
-![example train](misc/example_train.png)
+### Original data
 
-![example train mask](misc/example_train_mask.png)
+<img src="misc/example_kitti.png" alt="example train" style="width: 640px;"/>
 
-There are only two classes for the model: "road" and "non-road". The training images were jittered first (brightness and contrast only) and then normalized to [-1, 1]. The model was trained on AWS EC2 g3.4xlarge instance for approximately one hour.
+<img src="misc/example_kitti_mask.png" alt="example train mask" style="width: 640px;"/>
 
-**Cityscapes data set** (to be implemented)
-
-Train and Inference on the [cityscapes data set](https://www.cityscapes-dataset.com/) instead of the Kitti dataset. You'll need a GPU with at least 10 teraFLOPS to train on.
-
-## Run
-
+### Run
 ```
-python main.py
+python kitti_road.py
 ```
 
-## Result
+### Result
+<img src="misc/um_000014_infer.png" alt="example train" style="width: 640px;"/>
+<img src="misc/um_000061_infer.png" alt="example train" style="width: 640px;"/>
+<img src="misc/umm_000081_infer.png" alt="example train" style="width: 640px;"/>
+<img src="misc/uu_000088_infer.png" alt="example train" style="width: 640px;"/>
 
-Epochs: 120, loss: ~0.038
+## [CamVid data set](http://mi.eng.cam.ac.uk/research/projects/VideoRec/CamVid/).
 
-![alt text](misc/um_000061.png)
-![alt text](misc/umm_000058.png)
-![alt text](misc/uu_000027.png)
-![alt text](misc/uu_000028.png)
+Only 12 classes were used, as proposed in [this paper](http://www.robots.ox.ac.uk/~phst/Papers/2009/Sturgess09.pdf)
+
+### Original data
+
+<img src="misc/example_camvid.png" alt="example train" style="width: 480px;"/> <img src="misc/example_camvid_mask.png" alt="example train mask" style="width: 480px;"/>
+
+### Run
+
+```
+python camvid.py
+```
+
+### Result
+
+<img src="misc/example_camvid_inferred.png" alt="example train" style="width: 480px;"/>

@@ -2,12 +2,12 @@
 Fully-connected neural network (FCN) based on VGG16
 """
 import os
+import pickle
 
-import cv2
 import tensorflow as tf
+from tqdm import tqdm
 
-import helper
-import project_tests as tests
+from data_processing import data_generator
 
 
 def load_vgg(sess, vgg_folder):
@@ -15,6 +15,8 @@ def load_vgg(sess, vgg_folder):
 
     Flow of the network
     [n.name for n in tf.get_default_graph().as_graph_def().node]
+    or
+    [op.name for op in tf.get_default_graph().get_operations()]
 
     conv1_1 -> conv1_2 -> pool1 ->
     conv2-1 -> conv2_2 -> pool2 ->
@@ -29,22 +31,18 @@ def load_vgg(sess, vgg_folder):
         Path to vgg folder, containing "variables/" and "saved_model.pb"
 
     :return: Tuple of Tensors from VGG model
-        (image_input, keep_prob, layer3_out, layer4_out, layer7_out)
+        (input_tensor, keep_prob_tensor, layer3_out_tensor,
+        layer4_out_tensor, layer7_out_tensor)
     """
-    vgg_tag = 'vgg16'
-    tf.saved_model.loader.load(sess, [vgg_tag], vgg_folder)
+    tf.saved_model.loader.load(sess, ['vgg16'], vgg_folder)
 
-    vgg_input_tensor = sess.graph.get_tensor_by_name('image_input:0')
-    vgg_keep_prob_tensor = sess.graph.get_tensor_by_name('keep_prob:0')
-    vgg_layer3_out_tensor = sess.graph.get_tensor_by_name('layer3_out:0')
-    vgg_layer4_out_tensor = sess.graph.get_tensor_by_name('layer4_out:0')
-    vgg_layer7_out_tensor = sess.graph.get_tensor_by_name('layer7_out:0')
+    input_ts = sess.graph.get_tensor_by_name('image_input:0')
+    keep_prob_ts = sess.graph.get_tensor_by_name('keep_prob:0')
+    layer3_out_ts = sess.graph.get_tensor_by_name('layer3_out:0')
+    layer4_out_ts = sess.graph.get_tensor_by_name('layer4_out:0')
+    layer7_out_ts = sess.graph.get_tensor_by_name('layer7_out:0')
 
-    return vgg_input_tensor, vgg_keep_prob_tensor, vgg_layer3_out_tensor, \
-           vgg_layer4_out_tensor, vgg_layer7_out_tensor
-
-
-tests.test_load_vgg(load_vgg, tf)
+    return input_ts, keep_prob_ts, layer3_out_ts, layer4_out_ts, layer7_out_ts
 
 
 def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
@@ -65,8 +63,7 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
 
     :return: The Tensor for the last layer
     """
-    lb = -0.01
-    ub = 0.01
+    sigma = 0.01
 
     # produce class predictions (1x1 convolution)
     layer7_score = tf.layers.conv2d(
@@ -75,7 +72,8 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
         kernel_size=1,
         strides=1,
         padding='SAME',
-        kernel_initializer=tf.random_uniform_initializer(lb, ub))
+        kernel_initializer=tf.truncated_normal_initializer(stddev=sigma),
+        name='layer7_score')
     # bilinearly up-sample by a factor of 2
     layer7_up = tf.layers.conv2d_transpose(
         inputs=layer7_score,
@@ -83,7 +81,8 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
         kernel_size=4,
         strides=2,
         padding='SAME',
-        kernel_initializer=tf.random_uniform_initializer(lb, ub))
+        kernel_initializer=tf.truncated_normal_initializer(stddev=sigma),
+        name='layer7_up')
 
     # produce class prediction using an layer upstream (1x1 convolution)
     layer4_score = tf.layers.conv2d(
@@ -92,10 +91,11 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
         kernel_size=1,
         strides=1,
         padding='SAME',
-        kernel_initializer=tf.random_uniform_initializer(lb, ub))
+        kernel_initializer=tf.truncated_normal_initializer(stddev=sigma),
+        name='layer4_score')
 
     # fuse the above two layers (element-wise addition)
-    fuse1 = tf.add(layer7_up, layer4_score)
+    fuse1 = tf.add(layer7_up, layer4_score, name='fuse1')
 
     # bilinearly up-sample the fused layer by a factor of 2
     fuse1_up = tf.layers.conv2d_transpose(
@@ -104,7 +104,8 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
         kernel_size=4,
         strides=2,
         padding='SAME',
-        kernel_initializer=tf.random_uniform_initializer(lb, ub))
+        kernel_initializer=tf.truncated_normal_initializer(stddev=sigma),
+        name='fuse1_up')
 
     # produce class prediction using a layer further upstream (1x1 convolution)
     layer3_score = tf.layers.conv2d(
@@ -113,10 +114,11 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
         kernel_size=1,
         strides=1,
         padding='SAME',
-        kernel_initializer=tf.random_uniform_initializer(lb, ub))
+        kernel_initializer=tf.truncated_normal_initializer(stddev=sigma),
+        name='layer3_score')
 
     # fuse more layers
-    fuse2 = tf.add(fuse1_up, layer3_score)
+    fuse2 = tf.add(fuse1_up, layer3_score, name='fuse2')
 
     # bilinearly up-sample back to the original image
     fuse2_up = tf.layers.conv2d_transpose(
@@ -125,152 +127,228 @@ def fcn8s(layer3_out, layer4_out, layer7_out, n_classes):
         kernel_size=16,
         strides=8,
         padding='SAME',
-        kernel_initializer=tf.random_uniform_initializer(lb, ub))
+        kernel_initializer=tf.truncated_normal_initializer(stddev=sigma),
+        name='fuse2_up')
 
     return fuse2_up
 
 
-tests.test_layers(fcn8s)
+def build_model(sess, n_classes):
+    """Build the model
+
+    :param n_classes: int
+        Number of classes
+
+    :return inputs: TF tensor
+        Inputs.
+    :return outputs: TF tensor
+        Outputs.
+    :return vgg_keep_prob: TF tensor
+        Keep probability in dropout layers.
+    """
+    # Load VGG layers
+    input_ts, keep_prob_ts, layer3_out_ts, layer4_out_ts, layer7_out_ts = \
+        load_vgg(sess, '../vgg')
+
+    # Build FCN-8s
+    output_ts = fcn8s(layer3_out_ts, layer4_out_ts, layer7_out_ts, n_classes)
+
+    return input_ts, output_ts, keep_prob_ts
 
 
-def train(sess, gen, n_classes, *,
-          epochs=1,
-          batch_size=16,
-          keep_prob=0.5,
-          learning_rate=1e-3,
-          gen_validation=None,
-          training=True):
+def load_fcn8s(sess, root_path):
+    """Load saved FCN8s model
+
+    :param sess: TF Session
+    :param root_path: string
+        Root path of saved meta graph and variables.
+    :return: input tensor, keep probability tensor, output tensor
+    """
+    saver = tf.train.import_meta_graph(root_path + '.meta')
+    input_ts = sess.graph.get_tensor_by_name('image_input:0')
+    keep_prob_ts = sess.graph.get_tensor_by_name('keep_prob:0')
+    output_ts = sess.graph.get_tensor_by_name('fuse2_up/conv2d_transpose:0')
+    sess.run(tf.global_variables_initializer())
+    saver.restore(sess, root_path)
+
+    return input_ts, keep_prob_ts, output_ts
+
+
+def save_history(history, file_path):
+    """Save loss (other metrics) history to file
+
+    :param history: dictionary
+        Output of Model.fit() in Keras.
+    :param file_path: string
+        Path of the output file.
+    """
+    loss_history = dict()
+    for key in history.keys():
+        loss_history[key] = list()
+
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as fp:
+            loss_history = pickle.load(fp)
+
+    for key in history.keys():
+        loss_history[key].extend(history[key])
+
+    with open(file_path, "wb") as fp:
+        pickle.dump(loss_history, fp)
+
+    print("Saved training history to file!")
+
+
+def update_description(pbar, loss, vali_loss):
+    """Update description in tqdm
+
+    :param pbar: tqdm object
+    :param loss: float
+        Training loss.
+    :param vali_loss: float / None
+        Validation loss.
+    """
+    if vali_loss is None:
+        pbar.set_description("train cost: {:.4f}".
+                             format(loss))
+    else:
+        pbar.set_description("train cost: {:.4f}, vali cost: {:.4f}".
+                             format(loss, vali_loss))
+
+
+def train(sess, data, *,
+          input_shape=None,
+          epochs=10,
+          batch_size=32,
+          learning_rate=1e-4,
+          weight_decay=0.0,
+          save_dir='./saved_fcn8s',
+          rootname='fcn8s',
+          finalize_dir=None):
     """Train neural network and print out the loss during training.
 
     :param sess: TF Session
-    :param gen: generator
-        Training data generator.
-    :param n_classes: int
-        Number of classes
+    :param data: Data object
+        Data set.
+    :param input_shape: tuple, (w, h)
+        Input shape for the neural network.
     :param epochs: int
         Number of epochs.
     :param batch_size: int
         Batch size.
-    :param keep_prob: float
-        Keep probability for drop-out layer.
     :param learning_rate: float
         Learning rate.
-    :param gen_validation: None / generator
-        Validation data generator.
-    :param training: boolean
-        True for (continue) training the model.
-
-    :return logits, vgg_keep_prob, vgg_input: TF tensors
-        For prediction phase
+    :param weight_decay: float
+        L2 regularization strength.
+    :param save_dir: string
+        Directory of the saved model and weights.
+    :param rootname: string
+        Rootname for saved file.
     """
-    # Load VGG layers
-    vgg_input, vgg_keep_prob, vgg_layer3_out, vgg_layer4_out, vgg_layer7_out = \
-        load_vgg(sess, '../vgg')
+    input_ts, output_ts, keep_prob_ts = build_model(sess, data.n_classes)
 
-    # Build FCN-8s
-    outputs = fcn8s(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, n_classes)
+    # cross entropy loss
+    logits_ts = tf.reshape(output_ts, (-1, data.n_classes))
+    labels_ts = tf.placeholder(tf.float32, (None, None, None, data.n_classes))
+    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+        logits=logits_ts, labels=tf.reshape(labels_ts, (-1, data.n_classes))))
+
+    # L2 regularization
+    trainable_vars = tf.trainable_variables()
+    l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in trainable_vars
+                        if 'bias' not in v.name]) * weight_decay
+
+    total_loss = cross_entropy_loss + l2_loss
 
     # Optimizer for training
-    masks = tf.placeholder(tf.float32, (None, None, None, n_classes))
-    logits = tf.reshape(outputs, (-1, n_classes))
-    labels = tf.reshape(masks, (-1, n_classes))
-    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-        logits=logits, labels=labels))
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
+    optimizer = tf.train.AdamOptimizer(
+        learning_rate=learning_rate).minimize(total_loss)
 
     # Initialization
     sess.run(tf.global_variables_initializer())
     saver = tf.train.Saver()
-
-    # prepare folder for saving models
-    save_dir = './saved_models'
-    root_name = os.path.join(save_dir, 'model-fcn8s-camvid')
-    if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
+    loss_history_file = os.path.join(save_dir, rootname + '_loss_history.pkl')
+    loss_history = dict()
+    loss_history['loss'] = []
+    loss_history['vali_loss'] = []
 
     # load the model if exists
-    try:
-        print("--- Try loading saved models! ---")
-        saver = tf.train.import_meta_graph(root_name + '.meta')
-        saver.restore(sess, root_name)
-    except:
-        print("Cannot find existing model!")
-        pass
-
-    if training is True:
-        # train the model
-        print("--- Training ---")
-        for i in range(epochs):
-            count = 0
-            total_loss = 0
-            for features, labels in gen(batch_size):
-                _, loss = sess.run([optimizer, cross_entropy_loss],
-                                   feed_dict={vgg_keep_prob: keep_prob,
-                                              vgg_input: features,
-                                              masks: labels
-                                              })
-                count += features.shape[0]
-                total_loss += loss*features.shape[0]
-                print("Loss: {:.4f}".format(total_loss / count))
-
-            print("Epoch: {:02d}/{:02d}, cost: {:.4f}".
-                  format(i+1, epochs, total_loss/count), end='')
-
-            # validation
-            if gen_validation is not None:
-                count = 0
-                total_vali_loss = 0
-                for features, labels in gen_validation(batch_size):
-                    count += features.shape[0]
-                    total_vali_loss += sess.run([cross_entropy_loss],
-                                                feed_dict={vgg_keep_prob: 1.0,
-                                                           vgg_input: features,
-                                                           masks: labels})
-                print(" ,Validation cost: {:.4f}".format(total_vali_loss / count))
-
-        # save the model
+    if os.path.exists(save_dir):
         try:
-            saver.save(sess, root_name)
-        except ValueError:
-            # the graph is too large to be saved
-            print("Failed to save (maybe part of) the result")
-            pass
+            print("--- Loading saved models! ---")
+            saver.restore(sess, os.path.join(save_dir, rootname))
+            if finalize_dir is not None:
+                builder = tf.saved_model.builder.SavedModelBuilder(finalize_dir)
+                builder.add_meta_graph_and_variables(
+                    sess,
+                    ['fcn8s'],
+                    signature_def_map={
+                        "model": tf.saved_model.signature_def_utils.predict_signature_def(
+                            inputs={"input": input_ts},
+                            outputs={"output": output_ts})
+                    }
+                )
+                builder.save()
+                return
+        except:
+            print("Cannot load existing model!")
+    else:
+        os.mkdir(save_dir)
 
-    return logits, vgg_keep_prob, vgg_input
+    if finalize_dir is not None:
+        print("Cannot finalize a saved model!")
+        return
 
+    # train the model
+    print("--- Training ---")
+    pbar = tqdm(total=epochs)
+    for i in range(epochs):
+        gen = data_generator(
+            data.image_files_train,
+            data.label_files_train,
+            data.label_colors if data.label_colors else data.background_color,
+            batch_size=batch_size,
+            input_shape=input_shape)
+        total_loss = 0
+        count = 0
+        for X, Y in gen:
+            _, loss = sess.run([optimizer, cross_entropy_loss],
+                               feed_dict={keep_prob_ts: 1.0,
+                                          input_ts: X,
+                                          labels_ts: Y
+                                          })
+            count += X.shape[0]
+            total_loss += loss*X.shape[0]
+            loss_history['loss'].append(loss)
+            print("mini-batch loss: {:.4f}".format(loss), end='\r')
+        avg_loss = total_loss / count
 
-def predict_test(sess, data_folder, output_folder, logits, vgg_input,
-                 vgg_keep_prob, image_shape):
-    """Predict the test images
+        # validation
+        if data.image_files_vali is not None:
+            vali_count = 0
+            total_vali_loss = 0
+            gen = data_generator(
+                data.image_files_vali,
+                data.label_files_vali,
+                data.label_colors if data.label_colors else data.background_color,
+                batch_size=batch_size,
+                input_shape=input_shape,
+                is_training=False)
+            for X, Y in gen:
+                vali_loss = sess.run(cross_entropy_loss,
+                                     feed_dict={keep_prob_ts: 1.0,
+                                                input_ts: X,
+                                                labels_ts: Y})
+                vali_count += X.shape[0]
+                total_vali_loss += vali_loss*X.shape[0]
+                loss_history['vali_loss'].append(vali_loss)
+            avg_vali_loss = total_vali_loss / vali_count
+        else:
+            avg_vali_loss = None
 
-    :param sess: TF Session
-    :param data_folder: string
-        Folder contains the testing data
-    :param output_folder: string
-        Folder for storing the predicted testing images
-    :param logits: TF Tensor
-        Logits
-    :param vgg_input: TF Tensor
-        Input tensor for the VGG network
-    :param vgg_keep_prob: TF Tensor
-        Keep probability
-    :param image_shape: tuple
-        Shape of the input image
-    """
-    count = 0
-    output_root = output_folder
-    while count < 10:
-        try:
-            os.makedirs(output_folder)
-            break
-        except IOError:
-            count += 1
-            output_folder = output_root + "{:02d}".format(count)
+        update_description(pbar, avg_loss, avg_vali_loss)
+        pbar.update()
 
-    # testing data generator
-    image_outputs = helper.gen_test_output(
-        sess, logits, vgg_keep_prob, vgg_input, data_folder, image_shape)
-
-    print('Saving inferred test images to: {}'.format(output_folder))
-    for name, image in image_outputs:
-        cv2.imwrite(os.path.join(output_folder, name), image)
+    # save the model
+    saver.save(sess, os.path.join(save_dir, rootname))
+    save_history(loss_history, loss_history_file)

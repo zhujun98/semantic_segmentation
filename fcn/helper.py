@@ -1,33 +1,7 @@
-"""
-Helper functions for the road semantic segmentation project
-"""
-import re
-import random
-import numpy as np
 import os
 import zipfile
-import cv2
-import tensorflow as tf
-from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
-import warnings
-from distutils.version import LooseVersion
-
-from data_processing import normalize_rgb_images
-
-
-# def check_environment():
-#     """Check TensorFlow Version and GPU"""
-#     print('TensorFlow Version: {}'.format(tf.__version__))
-#     if LooseVersion(tf.__version__) < LooseVersion('1.4'):
-#         warnings.warn('It is recommended to use TensorFlow version 1.4 or newer.')
-#
-#     # Check for a GPU
-#     if not tf.test.gpu_device_name():
-#         warnings.warn('No GPU found. Please use a GPU to train your neural network.')
-#     else:
-#         print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
 class DLProgress(tqdm):
@@ -81,38 +55,3 @@ def maybe_download_pretrained_vgg():
 
         # Remove the zip file
         os.remove(vgg_zipfile)
-
-
-def gen_test_output(sess, logits, input_image, keep_prob, data_folder, image_shape):
-    """Generate test output using the test images
-
-    :param sess: TF session
-    :param logits: TF Tensor
-        Logits.
-    :param input_image: TF Placeholder
-        Input image.
-    :param keep_prob: TF Placeholder
-        Dropout keep robability.
-    :param data_folder: string
-        Path to the folder that contains the datasets
-    :param image_shape: Tuple
-        Shape of image.
-
-    :return: a generator of (testing image file name, masked image)
-    """
-    for image_file in glob(os.path.join(data_folder, 'image_2', '*.png')):
-        image = cv2.resize(cv2.imread(image_file), (image_shape[1], image_shape[0]))
-
-        # Normalize the test image
-        normalize_rgb_images(image)
-
-        softmax = sess.run([tf.nn.softmax(logits)],
-                           feed_dict={keep_prob: 1.0, input_image: [image]})
-        softmax = softmax[0][:, 1].reshape(image_shape[0], image_shape[1], 1)
-
-        segmentation = (softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
-        mask = np.dot(segmentation, np.array([[0, 255, 0]]))
-        street_im = cv2.addWeighted(
-            image.astype(np.float32), 0.7, mask.astype(np.float32), 0.3, 0)
-
-        yield os.path.basename(image_file), np.array(street_im)

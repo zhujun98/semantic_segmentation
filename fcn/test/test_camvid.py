@@ -4,7 +4,7 @@ import random
 import numpy as np
 import cv2
 
-from data_processing import CamVid, crop_images, encoding_mask
+from data_processing import CamVid, crop_images, encoding_mask, decoding_mask
 from data_processing import preprocess_data
 
 
@@ -29,11 +29,13 @@ class TestCamVid(unittest.TestCase):
         self.n_classes = self._data.n_classes
 
     def test_class_names(self):
-        self.assertEqual(len(self.label_colors), 32)
-        self.assertEqual(self.label_names[0], 'Animal')
-        self.assertEqual(self.label_colors[0], (64, 128, 64))
-        self.assertEqual(self.label_names[-1], 'Wall')
-        self.assertEqual(self.label_colors[-1], (64, 192, 0))
+        self.assertEqual(self.n_classes, 12)
+        self.assertEqual(len(self.label_names), 12)
+        self.assertEqual(len(self.label_colors), 12)
+        self.assertEqual(self.label_names[0], 'Bicyclist')
+        self.assertEqual(self.label_colors[0], (0, 128, 192))
+        self.assertEqual(self.label_names[-1], 'Void')
+        self.assertEqual(self.label_colors[-1], (0, 0, 0))
 
     def test_split_data(self):
         self.assertEqual(len(self._data.image_files_vali), 112)
@@ -50,22 +52,29 @@ class TestCamVid(unittest.TestCase):
 
     def test_crop_image(self):
         target_shape = (320, 480)
-        img, gt_img = crop_images(self.images_test[0],
-                                  self.labels_test[0],
-                                  target_shape,
-                                  True)
-        self.assertEqual(img.shape, (*target_shape, 3))
-        self.assertEqual(gt_img.shape, (*target_shape, 3))
+        for img_, gt_img_ in zip(self.images_test, self.labels_test):
+            img, gt_img = crop_images(img_, gt_img_, target_shape, is_training=False)
+            self.assertEqual(img.shape, (*target_shape, 3))
+            self.assertEqual(gt_img.shape, (*target_shape, 3))
+            # Unique colors are invariant during cropping
+            self.assertLessEqual(set(tuple(v) for m2d in gt_img for v in m2d),
+                                 set(tuple(v) for m2d in gt_img_ for v in m2d))
 
-    def test_encoding_mask(self):
+    def test_encoding_decoding_mask(self):
         for label in self.labels_test:
-            mask_encoded = encoding_mask(label, self.label_colors)
+            mask_encoded = encoding_mask(label, self.label_colors, is_rgb=False)
             self.assertEqual(mask_encoded.shape[2], len(self.label_names))
             self.assertEqual(sorted(np.unique(mask_encoded)), [0, 1])
 
+            mask_decoded = decoding_mask(np.argmax(mask_encoded, axis=2),
+                                         self.label_colors,
+                                         is_rgb=False)
+            self.assertLessEqual(
+                len(set(tuple(v) for m2d in mask_decoded for v in m2d)),
+                self.n_classes)
+
     def test_data_processing(self):
         target_shape = (320, 480)
-
         images, labels = preprocess_data(self.images_test,
                                          self.labels_test,
                                          self.label_colors,

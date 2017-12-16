@@ -4,7 +4,7 @@ import random
 import numpy as np
 import cv2
 
-from data_processing import KittiRoad, crop_images, encoding_mask
+from data_processing import KittiRoad, crop_images, encoding_mask, decoding_mask
 from data_processing import preprocess_data
 
 
@@ -12,7 +12,7 @@ class TestKittiRoad(unittest.TestCase):
     def setUp(self):
         self._data = KittiRoad('../data_road/training',
                                '../data_road/testing')
-        self.background_color = self._data.background_color
+        self.label_colors = self._data.label_colors
         self.n_classes = self._data.n_classes
         self.images_test = []
         self.labels_test = []
@@ -42,25 +42,34 @@ class TestKittiRoad(unittest.TestCase):
 
     def test_crop_image(self):
         target_shape = (160, 576)
-        img, gt_img = crop_images(self.images_test[0],
-                                  self.labels_test[0],
-                                  target_shape[0:2],
-                                  True)
-        self.assertEqual(img.shape, (*target_shape, 3))
-        self.assertEqual(gt_img.shape, (*target_shape, 3))
+        for img_, gt_img_ in zip(self.images_test, self.labels_test):
+            img, gt_img = crop_images(img_, gt_img_, target_shape, is_training=False)
+            self.assertEqual(img.shape, (*target_shape, 3))
+            self.assertEqual(gt_img.shape, (*target_shape, 3))
+            # Unique colors are invariant during cropping
+            self.assertEqual(set(tuple(v) for m2d in gt_img for v in m2d),
+                             set(tuple(v) for m2d in gt_img_ for v in m2d))
 
-    def test_encoding_mask(self):
+    def test_encoding_decoding_mask(self):
         for label in self.labels_test:
-            mask_encoded = encoding_mask(label, self.background_color)
+            mask_encoded = encoding_mask(label, self.label_colors, is_rgb=False)
             self.assertEqual(mask_encoded.shape[2], self.n_classes)
             self.assertEqual(sorted(np.unique(mask_encoded)), [0, 1])
+            self.assertEqual(len(set(tuple(v) for m2d in mask_encoded for v in m2d)),
+                             self.n_classes)
+
+            mask_decoded = decoding_mask(np.argmax(mask_encoded, axis=2),
+                                         self.label_colors,
+                                         is_rgb=False)
+            self.assertEqual(len(set(tuple(v) for m2d in mask_decoded for v in m2d)),
+                             self.n_classes)
 
     def test_data_processing(self):
         target_shape = (160, 576)
 
         images, labels = preprocess_data(self.images_test,
                                          self.labels_test,
-                                         self.background_color,
+                                         self.label_colors,
                                          input_shape=target_shape)
         self.assertEqual(images.shape[0], len(self.images_test))
         self.assertEqual(labels.shape[0], len(self.labels_test))
