@@ -20,9 +20,9 @@ Download from [here](http://www.cvlibs.net/download.php?file=data_road.zip).
 
 ### Original data
 
-<img src="misc/example_kitti.png" alt="example train" style="width: 640px;"/>
+<img src="misc/example_kitti.png" alt="example train"  width='640'/>
 
-<img src="misc/example_kitti_mask.png" alt="example train mask" style="width: 640px;"/>
+<img src="misc/example_kitti_mask.png" alt="example train mask" width='640'/>
 
 ### Run
 ```
@@ -30,10 +30,10 @@ python kitti_road.py
 ```
 
 ### Result
-<img src="misc/um_000014_infer.png" alt="example train" style="width: 640px;"/>
-<img src="misc/um_000061_infer.png" alt="example train" style="width: 640px;"/>
-<img src="misc/umm_000081_infer.png" alt="example train" style="width: 640px;"/>
-<img src="misc/uu_000088_infer.png" alt="example train" style="width: 640px;"/>
+<img src="misc/um_000014_infer.png" alt="example train" width='640'/>
+<img src="misc/um_000061_infer.png" alt="example train" width='640'/>
+<img src="misc/umm_000081_infer.png" alt="example train" width='640'/>
+<img src="misc/uu_000088_infer.png" alt="example train" width='640'/>
 
 ## [CamVid data set](http://mi.eng.cam.ac.uk/research/projects/VideoRec/CamVid/).
 
@@ -41,7 +41,7 @@ Only 12 classes were used, as proposed in [this paper](http://www.robots.ox.ac.u
 
 ### Original data
 
-<img src="misc/example_camvid.png" alt="example train" style="width: 480px;"/> <img src="misc/example_camvid_mask.png" alt="example train mask" style="width: 480px;"/>
+<img src="misc/example_camvid.png" alt="example train" width='360'/> <img src="misc/example_camvid_mask.png" alt="example train mask" width='360'/>
 
 ### Run
 
@@ -51,4 +51,4 @@ python camvid.py
 
 ### Result
 
-<img src="misc/example_camvid_inferred.png" alt="example train" style="width: 480px;"/>
+<img src="misc/example_camvid_inferred.png" alt="example train" width='360'/>
