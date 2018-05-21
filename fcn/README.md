@@ -25,8 +25,10 @@ Download from [here](http://www.cvlibs.net/download.php?file=data_road.zip).
 <img src="misc/example_kitti_mask.png" alt="example train mask" width='640'/>
 
 ### Run
-```
-python kitti_road.py
+```sh
+python kitti_road.py --mode 0  # train a new model
+python kitti_road.py --mode 1  # infer all test images
+python kitti_road.py  # randomly infer 5 images and show the result
 ```
 
 ### Result
@@ -46,7 +48,9 @@ Only 12 classes were used, as proposed in [this paper](http://www.robots.ox.ac.u
 ### Run
 
 ```
-python camvid.py
+python camvid.py --mode 0  # train a new model
+python camvid.py --mode 1  # infer all test images
+python camvid.py  # randomly infer 5 images and show the result
 ```
 
 ### Result
