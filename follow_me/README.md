@@ -8,14 +8,18 @@ In this notebook, I built two segmentation networks to track VIP in an image. I 
 
 ## Requirements
 
-python3>=3.5.2
-tensorflow>=1.4.0
-keras>=2.0.9
+- python3>=3.5.2
+- tensorflow>=1.4.0
+- keras>=2.0.9
 
 ## Run
 
-```python
-python main.py
+```sh
+python main.py --mode 0 --nn segnet  # train segnet
+python main.py --mode 0 --nn depthwise-segnet  # train depthwise-segnet
+
+python main.py --nn segnet  # infer all test images using trained segnet
+python main.py --nn depthwise-segnet  # infer all test images using traind depthwise-segnet
 ```
 
 ## Visualization
