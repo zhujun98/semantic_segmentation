@@ -5,4 +5,4 @@ data
 *.h5
 *inference
 *.pkl
-models
+models/*

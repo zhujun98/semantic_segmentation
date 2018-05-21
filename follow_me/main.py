@@ -15,7 +15,7 @@ from parameters import image_shape, input_shape, num_classes, class_colors
 import data_processing
 
 DEBUG = False
-EPOCHS = 50
+EPOCHS = 150
 BATCH_SIZE = 16
 LEARNING_RATE = 2e-4
 
@@ -83,3 +83,4 @@ if __name__ == "__main__":
     else:
         helper.output_prediction(model, image_shape, class_colors, BATCH_SIZE,
                                  test_data_folder, num_test_data, output_folder)
+

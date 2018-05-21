@@ -158,7 +158,7 @@ def train(model, epochs, batch_size, learning_rate, class_colors,
     try:
         model.load_weights(weights_file)
         print("\nLoaded existing weights!")
-    except TypeError:
+    except:
         print("\nStart training new model!")
 
     model.compile(optimizer=keras.optimizers.Adam(learning_rate),
