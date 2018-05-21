@@ -7,6 +7,7 @@ import os
 import tensorflow as tf
 import cv2
 import random
+import argparse
 
 from model import train, load_fcn8s
 from data_processing import KittiRoad
@@ -15,6 +16,17 @@ from inference import inference
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='kitti_road segmentation')
+    parser.add_argument('--mode',
+                        type=int,
+                        nargs='?',
+                        default=2,
+                        help="0 for training; 1 for inferring all the test "
+                             "images and save the inferred image files; others "
+                             "for inferring and showing five images randomly "
+                             "without saving the inferred result.")
+    args = parser.parse_args()
+
     input_shape = (160, 576)
     train_data_folder = './data_road/training'
     test_data_folder = './data_road/testing'
@@ -30,11 +42,8 @@ if __name__ == '__main__':
     # Download pre-trained vgg model
     helper.maybe_download_pretrained_vgg()
 
-    # 0 for train, 1 for inferring all the test images and save the
-    # inferred image files, others for showing the inferred images
-    inference_option = 1
     with tf.Session() as sess:
-        if inference_option == 0:
+        if args.mode == 0:
             train(sess, data,
                   input_shape=input_shape,
                   epochs=epochs,
@@ -47,7 +56,7 @@ if __name__ == '__main__':
             input_ts, keep_prob_ts, output_ts = load_fcn8s(
                 sess, './saved_fcn8s/fcn8s_kitti')
 
-            if inference_option == 1:
+            if args.mode == 1:
                 output_folder = './output_kitti'
                 if not os.path.exists(output_folder):
                     os.mkdir(output_folder)
@@ -66,7 +75,7 @@ if __name__ == '__main__':
                                              '_infer.png'),
                                 street_img)
             else:
-                for i in range(10):
+                for i in range(5):
                     image_file = random.choice(data.image_files_test)
                     img = cv2.imread(image_file)
                     masks = inference(sess, [img], input_shape, input_ts, output_ts,
@@ -75,6 +84,7 @@ if __name__ == '__main__':
                                       set_black_background=True)
 
                     street_img = cv2.addWeighted(img, 0.7, masks[0], 0.3, 0)
+
                     cv2.imshow(os.path.basename(image_file), street_img)
                     cv2.waitKey(0)
-                    cv2.destroyAllWindows()
+                cv2.destroyAllWindows()

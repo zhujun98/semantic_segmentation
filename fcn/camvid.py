@@ -7,6 +7,7 @@ import os
 import tensorflow as tf
 import cv2
 import random
+import argparse
 
 from model import train, load_fcn8s
 from data_processing import CamVid
@@ -15,6 +16,17 @@ from inference import inference
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='camvid segmentation')
+    parser.add_argument('--mode',
+                        type=int,
+                        nargs='?',
+                        default=2,
+                        help="0 for training; 1 for inferring all the test "
+                             "images and save the inferred image files; others "
+                             "for inferring and showing five images randomly "
+                             "without saving the inferred result.")
+    args = parser.parse_args()
+
     input_shape = (320, 480)
 
     epochs = 30
@@ -35,11 +47,8 @@ if __name__ == '__main__':
     data = CamVid(image_data_folder, label_data_folder, label_colors_file)
     data.summary()
 
-    # 0 for train, 1 for inferring all the test images and save the
-    # inferred image files, others for showing the inferred images
-    inference_option = 2
     with tf.Session() as sess:
-        if inference_option == 0:
+        if args.mode == 0:
             train(sess, data,
                   input_shape=input_shape,
                   epochs=epochs,
@@ -52,7 +61,7 @@ if __name__ == '__main__':
             input_ts, keep_prob_ts, output_ts = load_fcn8s(
                 sess, './saved_fcn8s/fcn8s_camvid')
 
-            if inference_option == 1:
+            if args.mode == 1:
                 output_folder = './output_camvid'
                 if not os.path.exists(output_folder):
                     os.mkdir(output_folder)
@@ -80,4 +89,4 @@ if __name__ == '__main__':
 
                     cv2.imshow(os.path.basename(image_file), masks[0])
                     cv2.waitKey(0)
-                    cv2.destroyAllWindows()
+                cv2.destroyAllWindows()
