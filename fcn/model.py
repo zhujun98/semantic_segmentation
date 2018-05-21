@@ -164,7 +164,11 @@ def load_fcn8s(sess, root_path):
         Root path of saved meta graph and variables.
     :return: input tensor, keep probability tensor, output tensor
     """
-    saver = tf.train.import_meta_graph(root_path + '.meta')
+    try:
+        saver = tf.train.import_meta_graph(root_path + '.meta')
+    except OSError:
+        raise OSError("Model does not exist!")
+
     input_ts = sess.graph.get_tensor_by_name('image_input:0')
     keep_prob_ts = sess.graph.get_tensor_by_name('keep_prob:0')
     output_ts = sess.graph.get_tensor_by_name('fuse2_up/conv2d_transpose:0')
