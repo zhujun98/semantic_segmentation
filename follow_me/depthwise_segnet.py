@@ -1,5 +1,7 @@
 """
 Segnet using layer-wise convolution
+
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import keras
 from keras.layers import SeparableConv2D

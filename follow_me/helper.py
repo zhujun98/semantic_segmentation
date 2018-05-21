@@ -1,39 +1,21 @@
 """
 Helper functions for the road semantic segmentation project
+
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import pickle
 import random
 import numpy as np
 import os
 from glob import glob
-import warnings
-from distutils.version import LooseVersion
 from contextlib import redirect_stdout
 
 import cv2
-import tensorflow as tf
 import keras
 
 from data_processing import normalize_rgb_image
 from data_processing import jitter_image
 from data_processing import encoding_mask
-
-
-# def check_environment():
-#     """Check TensorFlow Version and GPU"""
-#     print('TensorFlow Version: {}'.format(tf.__version__))
-#     assert LooseVersion(tf.__version__) >= LooseVersion('1.4'), \
-#         'Please use TensorFlow version 1.4 or newer.'
-#
-#     print('Keras Version: {}'.format(keras.__version__))
-#     assert LooseVersion(keras.__version__) >= LooseVersion('2.0'), \
-#         'Please use Keras version 2.0 or newer.'
-#
-#     # Check for a GPU
-#     if not tf.test.gpu_device_name():
-#         warnings.warn('No GPU found. Please use a GPU to train your neural network.')
-#     else:
-#         print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
 def show_model(model, filename):
@@ -176,7 +158,7 @@ def train(model, epochs, batch_size, learning_rate, class_colors,
     try:
         model.load_weights(weights_file)
         print("\nLoaded existing weights!")
-    except:
+    except TypeError:
         print("\nStart training new model!")
 
     model.compile(optimizer=keras.optimizers.Adam(learning_rate),

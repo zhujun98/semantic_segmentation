@@ -1,5 +1,7 @@
 """
 Data downloading, augmentation and preprocessing
+
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import os
 import random

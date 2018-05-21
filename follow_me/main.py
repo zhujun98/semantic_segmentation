@@ -1,8 +1,12 @@
 """
+Segnet and depthwise segnet on "follow-me" data set.
 
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import os
 import glob
+import argparse
+
 import depthwise_segnet
 import segnet
 import helper
@@ -10,16 +14,45 @@ from parameters import train_data_folder, vali_data_folder, test_data_folder
 from parameters import image_shape, input_shape, num_classes, class_colors
 import data_processing
 
+DEBUG = False
+EPOCHS = 50
+BATCH_SIZE = 16
+LEARNING_RATE = 2e-4
+
 
 if __name__ == "__main__":
-    DEBUG = False
+    parser = argparse.ArgumentParser(description='camvid segmentation')
+    parser.add_argument('--mode',
+                        type=int,
+                        nargs='?',
+                        default=1,
+                        help="0 for training; others for inferring all the "
+                             "test images and save the inferred image files")
+    parser.add_argument('--nn',
+                        type=str,
+                        nargs='?',
+                        default='segnet',
+                        help="Name of the neural network.")
+    args = parser.parse_args()
 
-    learning_rate = 2e-4
-    epochs = 150
-    batch_size = 16
+    if args.nn.lower() == 'segnet':
+        nn = segnet
+        weights_file = "models/segnet_weights.h5"
+        structure_file = "models/segnet_model.txt"
+        loss_history_file = "models/segnet_loss.pkl"
+        output_folder = "./segnet_inference"
+
+    elif args.nn.lower() == 'depthwise_segnet':
+        nn = depthwise_segnet
+        weights_file = "models/depthwise_segnet_weights.h5"
+        structure_file = "models/depthwise_segnet_model.txt"
+        loss_history_file = "models/depthwise_segnet_loss.pkl"
+        output_folder = "./depthwise_segnet_inference"
+
+    else:
+        raise ValueError("Unknown network name!")
 
     # Download the data if necessary
-
     data_processing.maybe_download_data()
     data_processing.maybe_create_test_data()
 
@@ -40,47 +73,13 @@ if __name__ == "__main__":
 
     # helper.check_environment()
 
-    if DEBUG is True:
-        epochs = 2
-        batch_size = 2
-        num_vali_data = 2
-        num_train_data = 2
-        num_test_data = 2
-
-    #######################################################################
-    ### The original segnet (without pooling index)
-    #######################################################################
-    weights_file = "segnet_weights.h5"
-    structure_file = "segnet_model.txt"
-    output_folder = "./segnet_inference"
-    loss_history_file = "segnet_loss.pkl"
-
-    model = segnet.build_model(image_shape, input_shape, num_classes)
+    model = nn.build_model(image_shape, input_shape, num_classes)
     helper.show_model(model, structure_file)
-
-    helper.train(model, epochs, batch_size, learning_rate,
-                 class_colors, train_data_folder, num_train_data,
-                 vali_data_folder, num_vali_data,
-                 weights_file, loss_history_file)
-
-    helper.output_prediction(model, image_shape, class_colors, batch_size,
-                             test_data_folder, num_test_data, output_folder)
-
-    #######################################################################
-    ### The depthwise segnet
-    ######################################################################
-    weights_file = "depthwise_segnet_weights.h5"
-    structure_file = "depthwise_segnet_model.txt"
-    output_folder = "./depthwise_segnet_inference"
-    loss_history_file = "depthwise_segnet_loss.pkl"
-
-    model = depthwise_segnet.build_model(image_shape, input_shape, num_classes)
-    helper.show_model(model, structure_file)
-
-    helper.train(model, epochs, batch_size, learning_rate,
-                 class_colors, train_data_folder, num_train_data,
-                 vali_data_folder, num_vali_data,
-                 weights_file, loss_history_file)
-
-    helper.output_prediction(model, image_shape, class_colors, batch_size,
-                             test_data_folder, num_test_data, output_folder)
+    if args.mode == 0:
+        helper.train(model, EPOCHS, BATCH_SIZE, LEARNING_RATE,
+                     class_colors, train_data_folder, num_train_data,
+                     vali_data_folder, num_vali_data,
+                     weights_file, loss_history_file)
+    else:
+        helper.output_prediction(model, image_shape, class_colors, BATCH_SIZE,
+                                 test_data_folder, num_test_data, output_folder)

@@ -4,6 +4,8 @@ Segnet
 Keras implementation of
 SegNet: A Deep Convolutional Encoder-Decoder Architecture for Image Segmentation
 https://arxiv.org/pdf/1511.00561.pdf
+
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import keras
 from keras.layers import Conv2D
