@@ -1,5 +1,7 @@
 """
 Project test functions
+
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import sys
 import os

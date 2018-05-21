@@ -1,7 +1,7 @@
 """
 FCN8s on CamVid data set.
 
-Author: Jun Zhu
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import os
 import tensorflow as tf

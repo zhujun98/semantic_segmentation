@@ -1,5 +1,7 @@
 """
 Fully-connected neural network (FCN) based on VGG16
+
+Author: Jun Zhu, zhujun981661@gmail.com
 """
 import os
 import pickle

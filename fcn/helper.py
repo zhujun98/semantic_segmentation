@@ -1,3 +1,6 @@
+"""
+Author: Jun Zhu, zhujun981661@gmail.com
+"""
 import os
 import zipfile
 from urllib.request import urlretrieve

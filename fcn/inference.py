@@ -1,3 +1,6 @@
+"""
+Author: Jun Zhu, zhujun981661@gmail.com
+"""
 import numpy as np
 import cv2
 import tensorflow as tf
