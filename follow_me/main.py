@@ -42,7 +42,7 @@ if __name__ == "__main__":
         loss_history_file = "models/segnet_loss.pkl"
         output_folder = "./segnet_inference"
 
-    elif args.nn.lower() == 'depthwise_segnet':
+    elif args.nn.lower() == 'depthwise-segnet':
         nn = depthwise_segnet
         weights_file = "models/depthwise_segnet_weights.h5"
         structure_file = "models/depthwise_segnet_model.txt"
@@ -74,6 +74,16 @@ if __name__ == "__main__":
     # helper.check_environment()
 
     model = nn.build_model(image_shape, input_shape, num_classes)
+    try:
+        model.load_weights(weights_file)
+        print("\nLoaded existing weights!")
+    except OSError:
+        if args.mode == 0:
+            print("\nStart training new model!")
+        else:
+            print("\nCannot find existing weight file!")
+            raise
+
     helper.show_model(model, structure_file)
     if args.mode == 0:
         helper.train(model, EPOCHS, BATCH_SIZE, LEARNING_RATE,

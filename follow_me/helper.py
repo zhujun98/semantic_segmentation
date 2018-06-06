@@ -155,12 +155,6 @@ def train(model, epochs, batch_size, learning_rate, class_colors,
     :param loss_history_file: string
         File name for loss history.
     """
-    try:
-        model.load_weights(weights_file)
-        print("\nLoaded existing weights!")
-    except:
-        print("\nStart training new model!")
-
     model.compile(optimizer=keras.optimizers.Adam(learning_rate),
                   loss='categorical_crossentropy')
 
