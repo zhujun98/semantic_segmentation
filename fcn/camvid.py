@@ -36,7 +36,7 @@ if __name__ == '__main__':
     # Download pre-trained vgg model
     helper.maybe_download_pretrained_vgg()
 
-    data_path = os.path.expanduser("~/Projects/datasets/CamVid")
+    data_path = os.path.expanduser("~/datasets/CamVid")
     try:
         os.makedirs(data_path)
     except OSError:
